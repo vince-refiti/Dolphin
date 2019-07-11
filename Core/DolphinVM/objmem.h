@@ -91,7 +91,7 @@ public:
 	// Class pointer access
 	static BehaviorOTE* fetchClassOf(Oop objectPointer);
 
-	static size_t GetBytesElementSize(BytesOTE* ote);
+	static size_t GetBytesElementSizePower(BytesOTE* ote);
 
 	// Use CRT Small block heap OR pool if size <= this threshold
 	enum { MaxSmallObjectSize = 0x3f8 };
@@ -593,8 +593,7 @@ inline void ObjectMemory::countUp(Oop objectPointer)
 {
 	if (!isIntegerObject(objectPointer))
 	{
-		OTE* ote = reinterpret_cast<OTE*>(objectPointer);
-		ote->countUp();
+		reinterpret_cast<OTE*>(objectPointer)->countUp();
 	}
 }
 
@@ -602,8 +601,7 @@ inline void ObjectMemory::countDown(Oop rootObjectPointer)
 {
 	if (!isIntegerObject(rootObjectPointer))
 	{
-		OTE* rootOTE = reinterpret_cast<OTE*>(rootObjectPointer);
-		rootOTE->countDown();
+		reinterpret_cast<OTE*>(rootObjectPointer)->countDown();
 	}
 }
 
@@ -629,13 +627,15 @@ inline void __fastcall ObjectMemory::AddToZct(TOTE<Object>* ote)
 	m_nZctEntries = zctEntries;
 
 #ifdef _DEBUG
-	if (alwaysReconcileOnAdd || m_nZctEntries >= m_nZctHighWater)
+	if (!alwaysReconcileOnAdd && m_nZctEntries < m_nZctHighWater)
 #else
-	if (zctEntries >= m_nZctHighWater)
+	if (zctEntries < m_nZctHighWater)
 #endif
 	{
-		ReconcileZct();
+		return;
 	}
+
+	ReconcileZct();
 }
 
 inline void __fastcall ObjectMemory::AddStackRefToZct(TOTE<Object>* ote)
@@ -647,11 +647,11 @@ inline void __fastcall ObjectMemory::AddStackRefToZct(TOTE<Object>* ote)
 	m_pZct[zctEntries++] = reinterpret_cast<OTE*>(ote);
 	m_nZctEntries = zctEntries;
 
-	if (zctEntries >= m_nZctHighWater)
-	{
-		// The Zct overflowed when attempting to repopulate it from the active process stack. We must "grow" it.
-		GrowZct();
-	}
+	if (zctEntries < m_nZctHighWater)
+		return;
+
+	// The Zct overflowed when attempting to repopulate it from the active process stack. We must "grow" it.
+	GrowZct();
 }
 
 
@@ -764,9 +764,9 @@ inline MWORD ObjectMemory::storeWordOfObjectWithValue(MWORD wordIndex, Oop objec
 
 inline BehaviorOTE* ObjectMemory::fetchClassOf(Oop objectPointer)
 {
-	return isIntegerObject(objectPointer) 
-			? Pointers.ClassSmallInteger 
-			: reinterpret_cast<OTE*>(objectPointer)->m_oteClass;
+	return !isIntegerObject(objectPointer)
+		? reinterpret_cast<OTE*>(objectPointer)->m_oteClass
+		: Pointers.ClassSmallInteger;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -837,7 +837,7 @@ inline MWORD ObjectMemory::lastStrongPointerOf(OTE* ote)
 {
 	BYTE flags = ote->m_ubFlags;
 	return (flags & OTEFlags::PointerMask)
-		? (flags & WeaknessMask) == OTEFlags::WeakMask 
+		? (flags & WeaknessMask)
 				? ObjectHeaderSize + ote->m_oteClass->m_location->m_instanceSpec.m_fixedFields 
 				: ote->getWordSize()
 		: 0;
@@ -1109,26 +1109,13 @@ inline ArrayOTE* ST::Array::NewUninitialized(unsigned size)
 
 #include "STClassDesc.h"
 
-inline size_t ObjectMemory::GetBytesElementSize(BytesOTE* ote)
+inline size_t ObjectMemory::GetBytesElementSizePower(BytesOTE* ote)
 {
 	ASSERT(ote->isBytes());
-
-	// TODO: Should be using revised InstanceSpec here, not string encoding
+	int shift = 0;
 	if (ote->m_flags.m_weakOrZ)
 	{
-		switch (reinterpret_cast<const StringClass*>(ote->m_oteClass->m_location)->Encoding)
-		{
-		case StringEncoding::Ansi:
-		case StringEncoding::Utf8:
-			return sizeof(uint8_t);
-
-		case StringEncoding::Utf16:
-			return sizeof(uint16_t);
-		case StringEncoding::Utf32:
-			return sizeof(uint32_t);
-		default:
-			__assume(false);
-		}
+		shift = (int)reinterpret_cast<const StringClass*>(ote->m_oteClass->m_location)->Encoding << 1;
 	}
-	return sizeof(uint8_t);
+	return (0x90 >> shift) & 0x3;
 }

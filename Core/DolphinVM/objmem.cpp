@@ -458,7 +458,7 @@ Oop* __fastcall Interpreter::primitiveAllReferences(Oop* const sp, unsigned)
 // objectPointer (which may be a SmallInteger)
 ArrayOTE* __stdcall ObjectMemory::referencesTo(Oop referencedObjectPointer, bool includeWeakRefs)
 {
-	WeaknessMask = includeWeakRefs ? 0 : OTEFlags::WeakMask;
+	WeaknessMask = includeWeakRefs ? 0 : OTEFlags::WeakOrZMask;
 
 	unsigned size;
 	if (!isIntegerObject(referencedObjectPointer))

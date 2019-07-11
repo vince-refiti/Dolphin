@@ -38,12 +38,12 @@ inline POBJECT ObjectMemory::allocSmallChunk(MWORD chunkSize)
 #endif
 
 	ASSERT(chunkSize <= MaxSmallObjectSize);
-	return chunkSize > MaxSizeOfPoolObject 
-		? static_cast<POBJECT>(__sbh_alloc_block(chunkSize))
-		: chunkSize == 0 
+	return chunkSize <= MaxSizeOfPoolObject 
+		? (chunkSize == 0 
 				? &emptyObj
 				: // Use chunk pools, which are fast but can cause memory fragmentation
-					spacePoolForSize(chunkSize).allocate();
+					spacePoolForSize(chunkSize).allocate())
+		: static_cast<POBJECT>(__sbh_alloc_block(chunkSize));
 }
 
 inline void ObjectMemory::freeSmallChunk(POBJECT pBlock, MWORD size)
@@ -53,17 +53,17 @@ inline void ObjectMemory::freeSmallChunk(POBJECT pBlock, MWORD size)
 #endif
 
 	ASSERT(size <= MaxSmallObjectSize);
-	if (size > MaxSizeOfPoolObject)
+	if (size <= MaxSizeOfPoolObject)
+	{
+		if (pBlock != &emptyObj)
+			spacePoolForSize(size).deallocate(pBlock);
+	}
+	else
 	{
 		// Locate and dealloc SBH block
 		PHEADER pHeader = __sbh_find_block(pBlock);
 		ASSERT(pHeader != NULL);
-	    __sbh_free_block(pHeader, pBlock);
-	}
-	else
-	{
-		if (pBlock != &emptyObj)
-			spacePoolForSize(size).deallocate(pBlock);
+		__sbh_free_block(pHeader, pBlock);
 	}
 }
 

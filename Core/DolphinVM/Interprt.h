@@ -356,7 +356,7 @@ private:
 	static void __fastcall nonLocalReturnValueTo(Oop resultPointer, Oop contextPointer);
 	static void __fastcall invalidReturn(Oop resultPointer);
 
-	static BlockOTE* __fastcall blockCopy(DWORD ext);
+	static BlockOTE* __stdcall blockCopy(BlockCopyExtension ext);
 
 public:
 	static void basicQueueForFinalization(OTE* ote);
