@@ -58,12 +58,6 @@ namespace ST
 	class String : public ArrayedCollection
 	{
 	public:
-		template <typename T> static StringEncoding GetEncoding(T* ote)
-		{
-			ASSERT(ote->isNullTerminated());
-			auto strClass = reinterpret_cast<const StringClass*>(ote->m_oteClass->m_location);
-			return strClass->Encoding;
-		}
 	};
 
 	template <UINT CP, size_t I, class OTE, class TChar> class ByteStringT : public ArrayedCollection

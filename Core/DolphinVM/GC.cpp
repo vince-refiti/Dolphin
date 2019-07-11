@@ -46,7 +46,7 @@ extern VMPointers _Pointers;
 #endif
 
 enum { NoWeakMask = 0, GCNoWeakness = 1 };
-BYTE ObjectMemory::WeaknessMask = static_cast<BYTE>(OTEFlags::WeakMask);
+BYTE ObjectMemory::WeaknessMask = static_cast<BYTE>(OTEFlags::WeakOrZMask);
 
 void ObjectMemory::ClearGCInfo()
 {
@@ -127,7 +127,7 @@ void ObjectMemory::reclaimInaccessibleObjects(DWORD gcFlags)
 	// and we don't want to pass down to the depths. When we want to turn off
 	// weakness we mask with the free bit, which obviously can't be set on any
 	// live object so the test will always fail
-	WeaknessMask = static_cast<BYTE>(gcFlags & GCNoWeakness ? 0 : OTEFlags::WeakMask);
+	WeaknessMask = static_cast<BYTE>(gcFlags & GCNoWeakness ? 0 : OTEFlags::WeakOrZMask);
 
 	// Get the Oop to use for corpses from the interpreter (it's a global)
 	Oop corpse = corpsePointer();

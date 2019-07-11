@@ -45,8 +45,6 @@ namespace ST
 		enum { OuterIndex = ObjectFixedSize, MethodIndex, InitialIPIndex, InfoIndex, ReceiverIndex, FixedSize };
 		enum { TempFrameStart = FixedSize };
 
-		static BlockOTE* __fastcall New(unsigned copiedValuesCount);
-
 		unsigned initialIP() const
 		{
 			return integerValueOf(m_initialIP);
