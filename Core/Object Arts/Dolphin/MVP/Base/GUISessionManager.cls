@@ -76,6 +76,11 @@ commandLineParser
 		options: 'hq';
 		yourself!
 
+disableWindowGhosting
+	"Disable the Windows feature where if the process stops processing messages from the message queue for 5 seconds, it replaces all the top-level windows with so-called 'ghost' windows. For general applications this is probably not appropriate, but in some cases, such as a development system, the window ghosting is undesirable as it prevents the application receiving any asynchronous keyboard interrupt, and therefore prevents the Dolphin interrupt key sequence from being recognised, making runaway operations uninterruptable."
+
+	UserLibrary default disableProcessWindowsGhosting!
+
 inputStateClass
 	^GuiInputState!
 
@@ -83,6 +88,14 @@ isUnattended
 	"Answer whether the session was started with a unattended flag"
 
 	^flags allMask: UnattendedMask!
+
+onSettingChanged: aSettingsChangeEvent
+	"Private - A system setting has been changed. This could be any of a wide range of things from a theme change,
+	regional settings, even policy. The notifications come in thick and fast because they are sent to every top-level
+	window. We consolidate them by queuing them up for coalescing any that arrive within a 1-second window."
+
+	settingsChanged add: {aSettingsChangeEvent area. aSettingsChangeEvent uiAction}.
+	inputState msgWindow setTimer: SettingsChangeTimerId interval: 1000!
 
 parseCmdLineFlags
 	| options |
@@ -114,6 +127,7 @@ saveSessionState
 saveWindowState
 	"Private - Save the state of the top-level windows."
 
+	inputState purgeDeadWindows.
 	savedWindows := self topLevelWindowsInZOrder reverse collect: [ :w | ViewState recordStateOf: w forRecreate: false]
 
 !
@@ -174,8 +188,10 @@ windowSystemStartup
 !GUISessionManager categoriesFor: #clearSessionState!operations!public! !
 !GUISessionManager categoriesFor: #clearWindowState!operations-saving!private! !
 !GUISessionManager categoriesFor: #commandLineParser!helpers!private! !
+!GUISessionManager categoriesFor: #disableWindowGhosting!helpers!public! !
 !GUISessionManager categoriesFor: #inputStateClass!constants!private! !
 !GUISessionManager categoriesFor: #isUnattended!public!testing! !
+!GUISessionManager categoriesFor: #onSettingChanged:!event handling!private! !
 !GUISessionManager categoriesFor: #parseCmdLineFlags!operations-startup!private! !
 !GUISessionManager categoriesFor: #resourceManager!accessing!public! !
 !GUISessionManager categoriesFor: #restoreWindowState!operations-startup!private! !

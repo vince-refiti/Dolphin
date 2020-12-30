@@ -114,7 +114,7 @@ Oop* ObjectMemory::ReconcileZct()
 		//Interpreter::DumpOTEPoolStats();
 		TRACESTREAM << L"..." << std::endl;
 	}
-	dwLastReconcileTicks = dwTicksNow;
+	dwLastReconcileTicks = timeGetTime();
 	const auto nOldZctEntries = m_nZctEntries;
 #endif
 
@@ -182,15 +182,6 @@ void ObjectMemory::EmptyZct(Oop* const sp)
 }
 
 
-// Count down and deallocate an Object - only performed when reconciling
-// the Zct.
-//
-void ObjectMemory::recursiveCountDown(OTE* ote)
-{
-	if (ote->decRefs())
-		recursiveFree(ote);
-}
-
 OTE* __fastcall ObjectMemory::recursiveFree(OTE* rootOTE)
 {
 	HARDASSERT(!isIntegerObject(rootOTE));
@@ -201,7 +192,9 @@ OTE* __fastcall ObjectMemory::recursiveFree(OTE* rootOTE)
 	if (!rootOTE->isFinalizable())
 	{
 		// Deal with the class first, as this is now held in the OTE
-		recursiveCountDown(reinterpret_cast<POTE>(rootOTE->m_oteClass));
+		BehaviorOTE* oteClass = rootOTE->m_oteClass;
+		if (oteClass->decRefs())
+			recursiveFree(reinterpret_cast<POTE>(oteClass));
 
 		if (rootOTE->isPointers())
 		{
@@ -215,7 +208,8 @@ OTE* __fastcall ObjectMemory::recursiveFree(OTE* rootOTE)
 				if (!isIntegerObject(fieldPointer))
 				{
 					OTE* fieldOTE = reinterpret_cast<OTE*>(fieldPointer);
-					recursiveCountDown(fieldOTE);
+					if (fieldOTE->decRefs())
+						recursiveFree(reinterpret_cast<POTE>(fieldOTE));
 				}
 			}
 		}

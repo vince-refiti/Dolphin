@@ -84,7 +84,7 @@ wostream& operator<<(wostream& stream, const StringOTE* oteChars)
 	}
 	else
 	{
-		StringEncoding encoding = ST::String::GetEncoding(oteChars);
+		StringEncoding encoding = oteChars->m_oteClass->m_location->m_instanceSpec.m_encoding;
 		switch (encoding)
 		{
 		case StringEncoding::Ansi:
@@ -569,7 +569,7 @@ void HexDump(tracestream out, LPCTSTR lpszLine, uint8_t* pby,
 	ASSERT(nBytes > 0);
 	ASSERT(nWidth > 0);
 
-	int nRow = 0;
+	size_t nRow = 0;
 
 	tracestream::char_type oldFill = out.fill('0');
 	out << std::hex;
@@ -862,7 +862,7 @@ void Interpreter::DumpContext(wostream& logStream)
 
 	__try
 	{
-		logStream << L"ActiveFrame: " << m_registers.m_pActiveFrame << std::endl;
+		logStream << L"ActiveFrame: " << m_registers.m_pActiveFrame;
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{

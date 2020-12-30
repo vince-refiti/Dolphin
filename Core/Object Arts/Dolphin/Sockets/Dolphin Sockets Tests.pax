@@ -1,6 +1,7 @@
-| package |
+﻿| package |
 package := Package name: 'Dolphin Sockets Tests'.
 package paxVersion: 1;
+	preDeclareClassesOnLoad: false;
 	basicComment: ''.
 
 
@@ -18,19 +19,18 @@ package binaryGlobalNames: (Set new
 package globalAliases: (Set new
 	yourself).
 
-package setPrerequisites: (IdentitySet new
-	add: '..\Base\Dolphin';
-	add: '..\Base\Dolphin Base Tests';
-	add: 'Dolphin Sockets';
-	add: 'Sockets Connection';
-	yourself).
+package setPrerequisites: #(
+	'..\Base\Dolphin'
+	'..\Base\Dolphin Base Tests'
+	'Dolphin Sockets'
+	'Sockets Connection').
 
 package!
 
 "Class Definitions"!
 
 DolphinTest subclass: #AbstractSocketTest
-	instanceVariableNames: ''
+	instanceVariableNames: 'sockets'
 	classVariableNames: ''
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!

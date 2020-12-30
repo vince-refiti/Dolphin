@@ -166,10 +166,10 @@ initialize
 	dolphinIntensity := 0.
 	self loadTextureMap: 'ObjectsInside'.
 	random := Random new.
-	copyright := VMLibrary default versionInfo legalCopyright subStrings: $..
+	copyright := $. split: VMLibrary default versionInfo legalCopyright.
 	info := Utf16String writeStream.
 	info nextPutAll: copyright first.
-	copyright size > 1
+	(copyright size > 1 and: [copyright second notEmpty])
 		ifTrue: 
 			[info
 				nextPutAll: ', ';
@@ -224,11 +224,11 @@ loadTextureMap: mapName
 	baseScale := (scale x min: scale y) min: 1.
 	[map atEnd] whileFalse: 
 			[| elements pos ext bm |
-			elements := map nextLine subStrings: $,.
+			elements := $, split: map nextLine.
 			pos := elements second trimBlanks asNumber @ elements third trimBlanks asNumber.
 			ext := elements fourth trimBlanks asNumber @ elements fifth trimBlanks asNumber.
 			bm := GdiplusBitmap fromImage: texture crop: (pos extent: ext).
-			textureMap at: elements first put: (ObjectInside fromImage: bm scaledBy: baseScale )].
+			textureMap at: elements first put: (ObjectInside fromImage: bm scaledBy: baseScale)].
 	sun := textureMap removeKey: 'SeeingTheObjects.png'.
 	dolphins := {textureMap removeKey: 'Dolphin1.png'. textureMap removeKey: 'Dolphin2.png'}.
 	objects := textureMap values.
@@ -341,13 +341,13 @@ render
 
 showHintBubble
 	self hasHintBubble ifTrue: [^self].
-	hintBubble := (MessageBubble new)
+	hintBubble := MessageBubble new
 				caption: 'Hint';
 				maxWidth: 140;
 				willFade: true;
 				timeout: 5 seconds.
 	hintBubble
-		position: (self mapPoint: self sunPosition to: View desktop);
+		position: (self mapPointToScreen: self sunPosition);
 		notify: 'Find the dolphin inside and click to continue.'!
 
 startStepProcess

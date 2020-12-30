@@ -3,7 +3,7 @@
 MultilineTextEditTest subclass: #ScintillaViewTest
 	instanceVariableNames: ''
 	classVariableNames: ''
-	poolDictionaries: ''
+	poolDictionaries: 'ScintillaConstants'
 	classInstanceVariableNames: ''!
 ScintillaViewTest guid: (GUID fromString: '{3c6fbe95-74e0-4325-97e1-82f12133d503}')!
 ScintillaViewTest comment: ''!
@@ -23,6 +23,25 @@ initializePresenter
 
 margins
 	^0 @ 0!
+
+testCallTipColors
+	| fore back style |
+	style := presenter callTipStyle.
+	self assert: style forecolor equals: Color tooltipText.
+	self assert: style backcolor equals: Color tooltip.
+	fore := Color fromRgbCode: (presenter sendMessage: SCI_STYLEGETFORE wParam: STYLE_CALLTIP).
+	self assert: fore equals: Color tooltipText.
+	back := Color fromRgbCode: (presenter sendMessage: SCI_STYLEGETBACK wParam: STYLE_CALLTIP).
+	self assert: back equals: Color tooltip.
+	presenter
+		callTipForecolor: Color purple;
+		callTipBackcolor: Color green.
+	self assert: style forecolor equals: Color purple.
+	self assert: style backcolor equals: Color green.
+	fore := Color fromRgbCode: (presenter sendMessage: SCI_STYLEGETFORE wParam: STYLE_CALLTIP).
+	self assert: fore equals: Color purple.
+	back := Color fromRgbCode: (presenter sendMessage: SCI_STYLEGETBACK wParam: STYLE_CALLTIP).
+	self assert: back equals: Color green!
 
 testFindStringStartingAt
 	| found found2 |
@@ -49,28 +68,97 @@ testFindStringStartingAt
 	found := presenter findString: '🐬' startingAt: 50.
 	self assert: found equals: 0!
 
+testImmersiveColorSetChange
+	| textColor settingName requested settableNotGettable rnd |
+	textColor := Color red.
+	presenter caretForecolor: (PluggableColor with: [textColor]).
+	"Selection/whitespace forecolor and background colour are not retrievable from the view; we expect them to change, but can only test by examining calls"
+	requested := OrderedCollection new.
+	rnd := Random new.
+	settableNotGettable := #(#whitespaceForecolor: #whitespaceBackcolor: #selectionForecolor: #selectionBackcolor: #secondarySelectionForecolor: #secondarySelectionBackcolor: #callTipHighlightColor: #foldMarginColor: #foldMarginHiColor: #secondaryCaretForecolor: #edgeColor: #currentLineBackcolor: #activeHotspotForecolor: #activeHotspotBackcolor:)
+				asSet.
+	settableNotGettable do: 
+			[:each |
+			presenter perform: each
+				with: (PluggableColor with: 
+							[requested addLast: each.
+							Color fromRgbCode: (rnd next * 16rFFFFFF) rounded])].
+	self assert: (presenter sendMessage: SCI_GETCARETFORE) equals: Color red rgbCode.
+	self assert: requested asSet equals: settableNotGettable asSet.
+	requested := OrderedCollection new.
+	textColor := Color green.
+	"Simulate the color set changing, e.g. entering/leaving high contrast mode."
+	settingName := 'ImmersiveColorSet' asUtf16String.
+	presenter topShell
+		wmSettingChange: WM_SETTINGCHANGE
+		wParam: 0
+		lParam: settingName yourAddress.
+	self assert: (presenter sendMessage: SCI_GETCARETFORE) equals: Color green rgbCode.
+	self assert: requested asSet equals: settableNotGettable asSet!
+
 testLanguages
 	| lingos |
 	lingos := ScintillaView lexerLanguages.
 	lingos do: [:each | each notNil ifTrue: [presenter view lexer: each]]!
 
-testTokensFromTo
-	| tokens expected styler |
-	presenter textStyles: SmalltalkWorkspace textStyles.
-	presenter stylerClass: SmalltalkExpressionStyler.
-	styler := StStyler new.
-	#('' ' ' ' 	 ' ' a' 'a ' ' a ' ' a #a' 'a #a ' ' a #a ' ' a #a 1.2 '''' ''blah blah'' (') do: 
-			[:text |
-			presenter text: text.
-			presenter restyleAll.
-			tokens := (presenter tokensFrom: 1 to: presenter textLength) asArray.
-			expected := (SmalltalkScanner on: presenter text readStream) contents
-						collect: [:each | (styler styleNameFor: each) -> (text copyFrom: each start to: each stop)].
-			self assert: tokens equals: expected]! !
+testOverrideDefaultKeyBindings
+	| bindings code expectedDiffs binding actualBindings |
+	bindings := ScintillaView.DefaultKeyBindings copy.
+	expectedDiffs := Set new.
+	"Remove a key binding"
+	code := AcceleratorTable keyCodeFromInvariantString: 'PGDOWN'.
+	self assert: (bindings includesKey: code).
+	bindings removeKey: code.
+	expectedDiffs
+		add: (ScintillaKeyBinding newAcceleratorKey: code message: ScintillaConstants.SCI_NULL).
+	"Add a binding"
+	code := AcceleratorTable keyCodeFromInvariantString: 'CTRL+J'.
+	self deny: (bindings includesKey: code).
+	binding := ScintillaKeyBinding newAcceleratorKey: code
+				message: ScintillaConstants.SCI_SELECTIONDUPLICATE.
+	bindings at: code put: binding.
+	expectedDiffs add: binding.
+	"Update a binding"
+	code := AcceleratorTable keyCodeFromInvariantString: 'CTRL+D'.
+	self assert: (bindings includesKey: code).
+	binding := ScintillaKeyBinding newAcceleratorKey: code message: ScintillaConstants.SCI_PAGEDOWN.
+	bindings at: code put: binding.
+	expectedDiffs add: binding.
+
+	"When the bindings are set, we should be able to get back matching bindings"
+	presenter keyBindings: bindings.
+	actualBindings := presenter keyBindings asSet.
+	bindings := bindings asSet.
+	self assert: (bindings symmetricDifference: actualBindings) asArray equals: #().
+	"But only the diffs should be stored"
+	self assert: presenter basicKeyBindings asSet equals: expectedDiffs!
+
+testSetGetAnnotations
+	| annotations |
+	presenter text: self text.
+	annotations := OrderedCollection new.
+	annotations
+		add: (ScintillaAnnotation
+					line: 1
+					text: 'Wobble'
+					style: #Error);
+		add: (ScintillaAnnotation
+					line: 2
+					text: 'Wibble'
+					style: #Warning);
+		add: (ScintillaAnnotation
+					line: 1
+					text: 'Blah'
+					style: #Notification).
+	presenter annotations: annotations.
+	self assert: (presenter annotations noDifference: annotations)! !
 !ScintillaViewTest categoriesFor: #classToTest!helpers!private! !
 !ScintillaViewTest categoriesFor: #initializePresenter!public!Running! !
 !ScintillaViewTest categoriesFor: #margins!private!unit tests! !
+!ScintillaViewTest categoriesFor: #testCallTipColors!public!unit tests! !
 !ScintillaViewTest categoriesFor: #testFindStringStartingAt!public!unit tests! !
+!ScintillaViewTest categoriesFor: #testImmersiveColorSetChange!public!unit tests! !
 !ScintillaViewTest categoriesFor: #testLanguages!public!unit tests! !
-!ScintillaViewTest categoriesFor: #testTokensFromTo!public!unit tests! !
+!ScintillaViewTest categoriesFor: #testOverrideDefaultKeyBindings!public!unit tests! !
+!ScintillaViewTest categoriesFor: #testSetGetAnnotations!public!unit tests! !
 

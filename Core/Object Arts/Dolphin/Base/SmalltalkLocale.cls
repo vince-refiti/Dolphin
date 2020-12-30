@@ -111,9 +111,14 @@ durationFormat
 	^'-d:hh:mm:ssfff'!
 
 englishDisplayName
-	"The <String> name of the locale in English."
+	"The <String> full name of the locale in English."
 
-	^'Smalltalk'!
+	^'English (Smalltalk)'!
+
+englishLanguageName
+	"The <String> name of the language in English."
+
+	^'English'!
 
 firstDayOfWeek
 	"Answer an <Integer> in the range 1..7 identifying the first day of the week, where 1 is Monday and 7 is Sunday."
@@ -281,6 +286,11 @@ pmDesignator
 
 	^'pm'!
 
+printFloat: aFloat
+	"Answer a <String> representation of the <Float> argument in the format defined for this locale."
+
+	^aFloat printString!
+
 printFloat: aFloat on: aStream format: aNUMBERFMTW
 	"Append, to aStream, a String whose characters are a representation of the <Float> argument, aFloat, in <integer> base, baseInteger, using the formatting instructions specified by the <NUMBERFMT>, aNUMBERFMT."
 
@@ -339,6 +349,7 @@ yearMonthFormat
 !SmalltalkLocale categoriesFor: #displayOn:!displaying!public! !
 !SmalltalkLocale categoriesFor: #durationFormat!constants!public! !
 !SmalltalkLocale categoriesFor: #englishDisplayName!constants!public! !
+!SmalltalkLocale categoriesFor: #englishLanguageName!constants!public! !
 !SmalltalkLocale categoriesFor: #firstDayOfWeek!constants!public! !
 !SmalltalkLocale categoriesFor: #hasLeadingZero!constants!public! !
 !SmalltalkLocale categoriesFor: #indexOfMonth:!enquiries!public! !
@@ -361,6 +372,7 @@ yearMonthFormat
 !SmalltalkLocale categoriesFor: #numberGrouping!constants!public! !
 !SmalltalkLocale categoriesFor: #percentSymbol!constants!public! !
 !SmalltalkLocale categoriesFor: #pmDesignator!constants!public! !
+!SmalltalkLocale categoriesFor: #printFloat:!printing!public! !
 !SmalltalkLocale categoriesFor: #printFloat:on:format:!printing!public! !
 !SmalltalkLocale categoriesFor: #shortAmDesignator!constants!public! !
 !SmalltalkLocale categoriesFor: #shortDateFormat!constants!public! !
@@ -376,7 +388,11 @@ current
 	^Current!
 
 initialize
-	Current := self new! !
+	Current := self new!
+
+reset
+	Current numberFormat: nil! !
 !SmalltalkLocale class categoriesFor: #current!instance creation!public! !
 !SmalltalkLocale class categoriesFor: #initialize!class initialization!public! !
+!SmalltalkLocale class categoriesFor: #reset!initializing!private! !
 

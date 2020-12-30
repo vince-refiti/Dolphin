@@ -92,13 +92,13 @@ ENDIF
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; C++ method imports
-SENDVMINTERRUPT EQU ?sendVMInterrupt@Interpreter@@CIXII@Z
+SENDVMINTERRUPT EQU ?sendVMInterrupt@Interpreter@@SIXW4VMInterrupts@1@I@Z
 extern SENDVMINTERRUPT:near32
 
 FINDNEWMETHODNOCACHE EQU ?findNewMethodInClassNoCache@Interpreter@@SGPAUMethodCacheEntry@1@PAV?$TOTE@VBehavior@ST@@@@I@Z ; STDCALL, OTE return and arg
 extern FINDNEWMETHODNOCACHE:near32
 
-BLOCKCOPY EQU ?blockCopy@Interpreter@@CIPAV?$TOTE@VBlockClosure@ST@@@@I@Z
+BLOCKCOPY EQU ?blockCopy@Interpreter@@CGPAV?$TOTE@VBlockClosure@ST@@@@UBlockCopyExtension@@@Z
 extern BLOCKCOPY:near32											; See bytecde.cpp
 
 INPUTPOLLCOUNTER		EQU		?m_nInputPollCounter@Interpreter@@0JC
@@ -128,8 +128,6 @@ extern NONLOCALRETURN:near32
 
 NEWCONTEXT EQU ?New@Context@ST@@SIPAV?$TOTE@VContext@ST@@@@II@Z
 extern NEWCONTEXT:near32		; See bytecde.cpp
-NEWBLOCK EQU ?New@BlockClosure@ST@@SIPAV?$TOTE@VBlockClosure@ST@@@@I@Z
-extern NEWBLOCK:near32		; See bytecde.cpp
 
 IFDEF _DEBUG
 	extern ?executionTrace@Interpreter@@2HA:DWORD
@@ -478,10 +476,6 @@ MethodCacheEntry STRUCT
 	primAddress				DWORD		?
 MethodCacheEntry ENDS
 
-;ALIGN 16
-;METHODCACHE MethodCacheEntry 1024 DUP (<>,<>,<>,<>)
-;public METHODCACHE
-
 METHODCACHE EQU ?methodCache@Interpreter@@0PAUMethodCacheEntry@1@A
 extern METHODCACHE:MethodCacheEntry
 
@@ -676,17 +670,11 @@ SendSelectorArgs MACRO selector, args
 	mov		[MESSAGE], edx								;; Set the MESSAGE global
 	test	al, 1
 	
-	jnz		sendToSmallInteger
+	jnz		execMethodOfSmallInteger
 
 	ASSUME	eax:PTR OTE
 	mov		ecx, [eax].m_oteClass						;; Get the class of the Object
 
-	jmp		execMethodOfClass							; Jump to routine to exec class>>message in ECX>>EDX
-
-sendToSmallInteger:
-	ASSUME	eax:SDWORD									;; EAX is a SmallInteger
-
-	mov		ecx, [Pointers.ClassSmallInteger]
 	jmp		execMethodOfClass							; Jump to routine to exec class>>message in ECX>>EDX
 ENDM
 
@@ -3263,6 +3251,8 @@ pointerAt:
 	DispatchNext
 
 ;byteObjectAt:
+; TODO: Implement for 1, 2 and 4 byte encodings (see primitiveBasicAt)
+;
 ;	ASSUME	eax:PTR OTE							; EAX is Oop of receiver
 ;	ASSUME	edx:DWORD							; EDX is the index
 ;	ASSUME	ecx:PTR OTE							; ECX is the Oop of the receiver's class
@@ -3377,6 +3367,8 @@ BEGINBYTECODE shortSpecialSendBasicAtPut
 	DispatchNext
 
 byteObjectAtPut:
+; TODO: Implement for 1, 2 and 4 byte encodings (see primitiveBasicAtPut)
+;
 ;	ASSUME	ecx:PTR OTE						; ECX is receiver Oop (known byte object)
 ;	ASSUME	edx:DWORD						; EDX is index
 ;
@@ -3499,10 +3491,10 @@ ENDBYTECODE shortSpecialSendNot
 ; Note that blockCopy uses _IP, but not _SP or _BP
 
 BEGINBYTECODE blockCopy
-	xor		ecx, ecx
 	mov		ecx, DWORD PTR[_IP]						; Load extension into
 	movsx	edx, WORD PTR[_IP+4]					; Load jump offset into EDX
 	add		_IP, 6
+	push	ecx										; Push BlockCopyExtension for call to blockCopy
 	mov		[INSTRUCTIONPOINTER], _IP				; Save down IP (points at start of block byte codes)...
 	mov		[STACKPOINTER], _SP		 				; ...and SP (needed in case any values to copy off stack)
 	add		_IP, edx								; Prepare to jump to first byte code after block
@@ -3516,36 +3508,6 @@ ENDBYTECODE blockCopy
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-ShortSendXArgsN MACRO x, index
-	LOCAL sendToSmallInteger
-
-	mov		edx, [pMethod]							; Load current method
-	ASSUME	edx:PTR CompiledCodeObj
-	LoadStackValueInto <x>,<eax>					;; Load receiver into EAX (under arg)
-
-	push DWORD	x									; N arguments
-	mov		[STACKPOINTER], _SP		 				; Save down stack pointer (needed for DNU and C++ primitives)
-
-	mov     edx, [edx].m_aLiterals[&index*OOPSIZE]	; Load selector Oop into edx
-	test	al, 1									; Test for immediate receiver (used later)
-
-	mov		[MESSAGE], edx							; Save down message
-	jnz		sendToSmallInteger						; If a SmallInteger need to load class differently
-
-	ASSUME	eax:PTR OTE
-	
-	mov		ecx, [eax].m_oteClass					; Get class into ECX
-	jmp		execMethodOfClass						; Jump to routine to exec class>>message in ECX>>EDX
-
-sendToSmallInteger:
-	ASSUME	eax:DWORD
-
-	mov		ecx, [Pointers.ClassSmallInteger]
-
-	jmp		execMethodOfClass						; Jump to routine to exec class>>message in ECX>>EDX
-	ASSUME	ecx:NOTHING
-ENDM
-
 ShortSendXArgs MACRO x, offset
 	LOCAL sendToSmallInteger
 
@@ -3558,57 +3520,50 @@ ShortSendXArgs MACRO x, offset
 	mov		[STACKPOINTER], _SP		 				;; Save down stack pointer (needed for DNU and C++ primitives)
 
 	mov     edx, [edx].m_aLiterals[(ecx*OOPSIZE)-(offset*OOPSIZE)]	;; Load selector Oop into ecx
-	jnz		sendToSmallInteger						;; If a SmallInteger need to load class differently
 
 	ASSUME	eax:PTR OTE
 
 	pushd	x										;; X arguments
 	mov		[MESSAGE], edx							;; Save down message
+
+	jnz		execMethodOfSmallInteger				;; If a SmallInteger need to load class differently
 	
 	mov		ecx, [eax].m_oteClass					;; Get class into ECX
 	jmp		execMethodOfClass						;; Jump to routine to exec class>>message in ECX>>EDX
-
-sendToSmallInteger:
-	ASSUME	eax:DWORD
-
-	pushd	x
-	mov		[MESSAGE], edx
-
-	mov		ecx, [Pointers.ClassSmallInteger]
-	jmp		execMethodOfClass						;; Jump to routine to exec class>>message in ECX>>EDX
-
-	ASSUME	ecx:NOTHING
 ENDM
 
 BEGINBYTECODE shortSendNoArgs
 	ShortSendXArgs <0>, <FIRSTSHORTSENDNOARGS>
 ENDBYTECODE shortSendNoArgs
 
-BEGINBYTECODE shortSendSelfNoArgs
+ShortSendSelfNoArgs MACRO x, index, offset
 	mov		eax, [_BP-OOPSIZE]						; Access receiver at _BP-1
 
-	; ecx-offset is the literal index
 	mov		edx, [pMethod]							; Load current method
 	ASSUME	edx:PTR CompiledCodeObj
 
-	PushOop <a>										; push receiver
+	mov		[_SP+OOPSIZE], eax						;; push object onto stack
+	add     _SP, OOPSIZE
 	
 	test	al, 1									; Test for immediate receiver (used later)
-	mov		[STACKPOINTER], _SP		 				; Save down stack pointer (needed for DNU and C++ primitives)
 
-	mov     edx, [edx].m_aLiterals[(ecx*OOPSIZE)-(FIRSTSHORTSENDSELFNOARGS*OOPSIZE)]		; Load selector Oop into ecx
+	mov     edx, [edx].m_aLiterals[(index*OOPSIZE)-(offset*OOPSIZE)]
 
 	pushd	0										; 0 arguments
+
+	mov		[STACKPOINTER], _SP		 				; Save down stack pointer (needed for DNU and C++ primitives)
 	mov		[MESSAGE], edx							; Save down message
 
-	jnz		@F										; If a SmallInteger need to load class differently
+	jnz		execMethodOfSmallInteger				; If a SmallInteger need to load class differently
+
 	mov		ecx, (OTE PTR[eax]).m_oteClass			; Get class into ECX
-	jmp		execMethodOfClass						; Jump to routine to exec class>>message in ECX>>EDX
-@@:
-	mov		ecx, [Pointers.ClassSmallInteger]
 	jmp		execMethodOfClass						; Jump to routine to exec class>>message in ECX>>EDX
 
 	ASSUME	ecx:NOTHING
+ENDM
+
+BEGINBYTECODE shortSendSelfNoArgs
+	ShortSendSelfNoArgs <0>, ecx, FIRSTSHORTSENDSELFNOARGS
 ENDBYTECODE shortSendSelfNoArgs
 
 BEGINBYTECODE shortSendOneArg
@@ -3618,8 +3573,6 @@ ENDBYTECODE shortSendOneArg
 BEGINBYTECODE shortSendTwoArgs
 	ShortSendXArgs <00000002h>, <FIRSTSHORTSENDTWOARGS>
 ENDBYTECODE shortSendTwoArgs
-
-ASSUME edx:NOTHING
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Send Instruction  (double byte)
@@ -3646,16 +3599,10 @@ SendLiteralECXinEAXwithEDXArgs MACRO
 	test	al, 1							; Is the receiver a SmallInteger
 	
 	mov		edx, ecx						; Move message selector into edx (ECX now free)
-	jnz		sendToSmallInteger				; Branch if receiver is a SmallInteger
+	jnz		execMethodOfSmallInteger
 
 	ASSUME	eax:PTR OTE						; Receiver is an object
 	mov		ecx, [eax].m_oteClass			; Get the class of the Object
-	jmp		execMethodOfClass				; Jump to routine to exec class>>message in ECX>>EDX
-
-sendToSmallInteger:
-	ASSUME	eax:SDWORD						; Receiver is a SmallInteger
-
-	mov		ecx, [Pointers.ClassSmallInteger]
 	jmp		execMethodOfClass				; Jump to routine to exec class>>message in ECX>>EDX
 ENDM
 
@@ -3691,11 +3638,8 @@ BEGINBYTECODE sendTempNoArgs
 	mov		[MESSAGE], edx							; Save down message
 	mov		[_SP], eax								; Temp pushed on Smalltalk stack
 
-	jnz		@F										; If a SmallInteger need to load class differently
+	jnz		execMethodOfSmallInteger				; If a SmallInteger need to load class differently
 	mov		ecx, (OTE PTR[eax]).m_oteClass			; Get class into ECX
-	jmp		execMethodOfClass						; Jump to routine to exec class>>message in ECX>>EDX
-@@:
-	mov		ecx, [Pointers.ClassSmallInteger]
 	jmp		execMethodOfClass						; Jump to routine to exec class>>message in ECX>>EDX
 
 	ASSUME	ecx:NOTHING
@@ -3941,8 +3885,11 @@ ENDBYTECODE longSend
 ; The main body of the routine is very short, being a switch
 ; through a jump table (see immediately below).
 
+ALIGNPROC
+execMethodOfSmallInteger:
+	mov		ecx, [Pointers.ClassSmallInteger]
 
-BEGINPROC execMethodOfClass
+BEGINPROCNOALIGN execMethodOfClass
 	ASSUME	edx:PTR OTE		; Selector (N.B. must have been saved down in MESSAGE global
 	ASSUME	ecx:PTR OTE		; Class
 							; [ESP] is the argument count (i.e. one arg on stack)
@@ -3978,24 +3925,27 @@ BEGINPROC execMethodOfClass
 	mov		[NEWMETHOD], ecx
 	pop		edx										; Restore arg count
 
+IFDEF _DEBUG
 	mov		ecx, [ecx].m_location
-	
+ENDIF
+
 	; At this point edx=argCount, ecx & [NEWMETHOD] = Oop of new method, _SP=[STACKPOINTER]
 	; eax = pointer to func to run
 	
 	; Execute new method, and dispatch the next byte code
 execMethod:
-	ASSUME	ecx:PTR CompiledCodeObj
 	ASSUME	edx:DWORD
 	ASSUME	eax:DWORD
 
 	IFDEF _DEBUG
 		push	eax
 		ASSUME	eax:NOTHING
+		ASSUME	ecx:PTR CompiledCodeObj
 		movzx	eax, [ecx].m_header.primitiveIndex
 		inc DWORD PTR[_primitiveCounters+eax*4]
 		pop		eax
 		ASSUME	eax:DWORD
+		ASSUME	ecx:NOTHING
 	ENDIF
 
 	mov		ecx, _SP
@@ -4365,130 +4315,6 @@ ENDPRIMITIVE primitiveActivateMethod
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-BEGINPRIMITIVE primitiveReturnInstVar
-	; Its a primitive return of an instance variable
-	; Compiler should not generate such a method for a SmallInteger
-	; Which inst var do we want? Well its that whose index is
-	; in the extra index field of the method (normally used
-	; for primitives)
-	;	1 Nop
-	;	2 PushInstVarN
-	;	3(inst var index)
-	;	4 ReturnStackTop
-
-	mov		ecx, [NEWMETHOD]
-
-	ASSUME	edx:NOTHING				; Don't need the argument count
-
-	; We need a mini interpreter now to extract the inst var index from the byte codes
-
-	mov		ecx, (OTE PTR[ecx]).m_location
-	ASSUME	ecx:PTR CompiledCodeObj				; ECX points at the new method
-
-	mov		edx, [STEPPING]
-	mov		eax, [ecx].m_byteCodes				; Get bytecodes into eax - note that it MUST be a SmallInteger
-	mov		ecx, [_SP]							; ecx = receiver Oop at stack top
-	ASSUME	ecx:PTR OTE
-
-	test	edx, edx
-	jnz		stepping
-	
-	shr		eax, 16
-	mov		edx, [ecx].m_location 				; edx points at receiver object
-	ASSUME	edx:PTR Object
-	and		eax, 0FFh
-	
-	; No arguments to pop as compiler only generates this quick method form if zero args
-
-	; Load inst var Oop from object into edx
-	mov		edx, [edx].fields[eax*OOPSIZE]
-	ASSUME	edx:Oop
-
-	mov		[_SP], edx							; Overwrite receiver with inst. var Oop
-
-	mov		eax, _SP							; primitiveSuccess(0)
-	ret
-
-stepping:
-	; Fail so can step into method
-	mov		eax, SMALLINTZERO
-	ret
-
-ENDPRIMITIVE primitiveReturnInstVar
-
-BEGINPRIMITIVE primitiveSetInstVar
-	; Its a primitive set of an instance variable
-	; Compiler should not generate such a method for a SmallInteger
-	; This is somewhat simpler that primitiveReturnInstVar because the compiler
-	; always generates the same form for these methods
-	;	1 PushTemp0
-	;	2 StoreInstVarN
-	;	3 (inst var index)
-	;	4 Return Self
-	; There won't be any initial Nop, because the first instruction is always PushTemp0
-	; There must only be one argument, and that is the value to store down. There is no
-	; net effect on its ref. count (similar code to pop & store)
-
-	mov		ecx, [NEWMETHOD]
-
-	; We need a mini interpreter now to extract the inst var index from the byte codes
-	
-	cmp		[STEPPING], 0
-	mov		ecx, (OTE PTR[ecx]).m_location
-	ASSUME	ecx:PTR CompiledCodeObj				; ECX points at the new method
-	mov		edx, [_SP-OOPSIZE]					; edx = receiver Oop under argument
-	ASSUME	edx:PTR OTE
-	
-	mov		eax, [ecx].m_byteCodes				; Get bytecodes into eax - MUST be a SmallInteger
-
-	jne		steppingOrFailure
-
-	mov		ecx, [edx].m_location 				; ecx now points at receiver object
-	ASSUME	ecx:PTR Object
-
-	; Note assumption here that OOPSIZE == 4 (32-bit)
-	
-	.IF (ah == POPSTOREINSTVAR)
-		shr		eax, (16-OOPSHIFT)
-	.ELSE
-		shr		eax, (8-OOPSHIFT)
-		sub		eax, (FIRSTPOPNSTOREINSTVAR*OOPSIZE)
-	.ENDIF
-	and		eax, (0FFh*OOPSIZE)
-	
-	ASSUME eax:DWORD		; eax is now the offset into the fields of the inst var to set
-	cmp		eax, [edx].m_size
-	jge		steppingOrFailure					; Attempt to write off end, or immutable
-	
-	lea		eax, [ecx].fields[eax]
-	ASSUME	eax:PTR Oop
-
-	mov		edx, [_SP]
-	ASSUME	edx:Oop
-
-	mov		ecx, [eax]							; Load existing inst. var value into ECX for count down
-	ASSUME	ecx:Oop
-
-	; Storing new inst var value, we must bump its ref. count
-	CountUpOopIn <d>
-	mov		[eax], edx
-
-	; We must count down ECX (the old inst var value) here, because we've overwritten a heap object slot
-	CountDownOopIn <c>
-
-	lea		eax, [_SP-OOPSIZE]				; primitiveSuccess(1)
-	ret
-
-steppingOrFailure:
-	mov		eax, SMALLINTZERO
-	ret
-
-ENDPRIMITIVE primitiveSetInstVar
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Supersend Instruction (double byte)
 ;;
@@ -4747,10 +4573,7 @@ ENDPROC EXECUTENEWMETHOD
 
 BEGINPROC ACTIVATEPRIMITIVEMETHOD
 	ASSUME	ecx:PTR CompiledCodeObj
-	ASSUME	edx:DWORD	; Actually the _PrimitiveFailureCode enum value
-
-	add		edx, edx
-	inc		edx
+	ASSUME	edx:DWORD	; Actually the _PrimitiveFailureCode enum value; must already a SmallInteger value
 
 	; See execPrimitive above.
 	; Entered from C++, must save then set up _SP/_IP/_BP for assembler code

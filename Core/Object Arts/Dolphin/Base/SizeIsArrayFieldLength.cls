@@ -84,11 +84,12 @@ printSetSizeFor: anExternalField on: aWriteStream
 		on: aWriteStream!
 
 printSetSizeIsExpression: anStProgramNode for: anExternalField variable: aString on: aWriteStream
-	| expr setter structClass |
+	| expr setter structClass sizeFieldName |
 	expr := self invertSizeIsExpression: anStProgramNode paramName: anExternalField valueParameterName.
-	setter := (expr variable name copyWith: $:) asSymbol.
+	sizeFieldName := expr variable name.
+	setter := (sizeFieldName copyWith: $:) asSymbol.
 	structClass := anExternalField structClass.
-	((structClass template includesKey: setter) or: [structClass canUnderstand: setter])
+	((structClass template includesKey: sizeFieldName) or: [structClass canUnderstand: setter])
 		ifTrue: 
 			[aWriteStream
 				nextPutAll: aString;
@@ -101,11 +102,11 @@ printSetSizeIsExpression: anStProgramNode for: anExternalField variable: aString
 				nextPut: $.;
 				crtab]!
 
-setElementCount: anInteger of: anExternalField in: anExternalStructure
+setElementCount: anArrayedCollection of: anExternalField in: anExternalStructure
 	"Private - Set the length field corresponding to this array field, if any."
 
 	setLength isNil ifTrue: [setLength := self buildLengthWriter: anExternalField].
-	^setLength value: anExternalStructure value: anInteger!
+	^setLength value: anExternalStructure value: anArrayedCollection!
 
 sizeIs: aString
 	sizeIs := aString!

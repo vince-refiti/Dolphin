@@ -81,8 +81,8 @@ createSchematicWiring
 historyStatusFor: aSymbol in: aCollection
 	| inSources inChanges |
 	(class includesSelector: aSymbol) ifFalse: [^'deleted'].
-	inSources := aCollection anySatisfy: [:each | (each at: 1) = #sources].
-	inChanges := aCollection anySatisfy: [:each | (each at: 1) = #changes].
+	inSources := aCollection anySatisfy: [:each | each isFromSources].
+	inChanges := aCollection anySatisfy: [:each | each isFromChanges].
 	inSources & inChanges ifTrue: [^'modified'].
 	inSources not & inChanges ifTrue: [^'added'].
 	^'original'!
@@ -135,18 +135,18 @@ setClass: aClass
 
 updateHistory
 	| chunks selectors methodHistory |
-	Cursor wait showWhile: [chunks := self scanner forMethodsInClass: class].
-	selectors := (chunks collect: [:each | each at: 2]) asSet asSortedCollection.
+	Cursor wait showWhile: [chunks := self scanner scanForMethodVersionsInClass: class].
+	selectors := (chunks collect: [:each | each selector]) asSet asSortedCollection.
 	methodHistory := OrderedCollection new.
 	selectors do: 
 			[:eachSelector | 
 			| selectorChunks |
-			selectorChunks := chunks select: [:each | (each at: 2) = eachSelector].
+			selectorChunks := chunks select: [:each | each selector = eachSelector].
 			methodHistory add: ((Array new: 4)
 						at: 1 put: eachSelector;
 						at: 2 put: (self historyStatusFor: eachSelector in: selectorChunks);
-						at: 3 put: (selectorChunks select: [:each | (each at: 1) = #sources]) size;
-						at: 4 put: (selectorChunks select: [:each | (each at: 1) = #changes]) size;
+						at: 3 put: (selectorChunks select: [:each | each isFromSources]) size;
+						at: 4 put: (selectorChunks select: [:each | each isFromChanges]) size;
 						yourself)].
 	list list: methodHistory! !
 !ClassHistoryBrowser categoriesFor: #about!commands!public! !

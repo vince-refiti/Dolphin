@@ -2,22 +2,40 @@
 
 Magnitude subclass: #Character
 	instanceVariableNames: 'code'
-	classVariableNames: 'AnsiCharacters AnsiCodePage AnsiCodePoints CharacterSet EncodingMask EscapeChars Utf16Mask Utf16SurrogateMask Utf32Mask Utf8Default Utf8Mask Utf8SurrogateMask'
+	classVariableNames: 'AnsiCharacters AnsiCodePage AnsiCodePoints CharacterSet EncodingMask EscapeChars Utf16LeadMask Utf16Mask Utf16SurrogateMask Utf16TrailMask Utf32Mask Utf8Default Utf8Mask Utf8SurrogateMask'
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
 Character guid: (GUID fromString: '{87b4c651-026e-11d3-9fd7-00a0cc3e4a32}')!
 Character addClassConstant: 'EncodingMask' value: 16r3F000000!
 Character addClassConstant: 'EscapeChars' value: #($0 nil nil nil nil nil nil $a $b $t $n $v $f $r)!
+Character addClassConstant: 'Utf16LeadMask' value: 16rD800!
 Character addClassConstant: 'Utf16Mask' value: 16r2000000!
 Character addClassConstant: 'Utf16SurrogateMask' value: 16rFC00!
+Character addClassConstant: 'Utf16TrailMask' value: 16rDC00!
 Character addClassConstant: 'Utf32Mask' value: 16r3000000!
 Character addClassConstant: 'Utf8Mask' value: 16r1000000!
 Character addClassConstant: 'Utf8SurrogateMask' value: 16rC0!
-Character comment: '`Character` is the class of objects which serve as the elemental values of Smalltalk Strings. 
+Character comment: '`Character` is the class of objects which serve as the elemental values of Smalltalk `Strings`.
 
 Each `Character` instance generally represents a specific Unicode [code point](https://en.wikipedia.org/wiki/Code_point). Note that this does not necessarily mean that each `Character` corresponds to a single user-perceived, visually distinct, character (aka grapheme cluster). Multiple `Character`s may compose into a single grapheme cluster when displayed, some examples of different types being `👨🏻‍🍳`, `ö`, and `กำ`. The 2nd example has more than one valid representation and can have either one or two code-points.
 
- `Character` instances may also represent partial or surrogate character code-units that are part of a multi-code-unit code-point. Such surrogate instances may result from indexed access into `UTFEncodedStrings` such as `Utf8String` or `Utf16String`, and can be distinguished through the use of the `isSurrogate`, `isUtf8Surrogate`, `isUtf16Surrogate` family of testing messages. In general it is recommended to stream over strings, rather than treating them as arrays of characters, in which case surrogates will not be encountered.
+ `Character` instances may also represent partial or surrogate character code-units that are part of a multi-code-unit code-point. Such surrogate instances may result from indexed access into `UTFEncodedStrings` such as `Utf8String` or `Utf16String`, and can be distinguished through the use of the `isSurrogate`, `isUtf8Surrogate`, `isUtf16Surrogate` family of testing messages. For example:
+
+```
+(Character dolphin asUtf8String at: 1) isUtf8Surrogate	"true"
+```
+
+A surrogate can be written into a `String` of the same encoding, e.g. a UTF-8 surrogate into a `Utf8String`, but not into a string with a different UTF encoding. Care is also needed to avoid constructing strings with partial characters by writing an incomplete, or misordered, set of surrogate code-unit characters into the string. It is also possible to work with surrogates and streams of the correct underlying encoding, for example:
+
+```
+i := 0. Character dolphin asUtf8String do: [:each | i := i + 1. Transcript nextPut: each]. Transcript nextPutAll: '' has ''; print: i; nextPutAll: '' UTF-8 code units''; cr; flush
+```
+
+However, in general it is recommended to stream over strings, rather than treating them as arrays of characters, in which case surrogates will not be encountered.
+
+```
+i := 0. Character dolphin asUtf8String readStream do: [:each | i := i + 1. Transcript nextPut: each]. Transcript nextPutAll: '' has ''; print: i; nextPutAll: '' codepoint(s)''; cr; flush
+```
 
 The instances for the first 256 code points are unique. Smalltalk characters have a literal syntax which is the ''$'' symbol followed by the normal printed representation of the character. 
 At present only byte characters (that are not control characters) have a printable literal representation. Dolphin also supports the following escaped literal formats to provide a literal representation of any character:
@@ -35,19 +53,10 @@ At present only byte characters (that are not control characters) have a printab
 !Character methodsFor!
 
 _beginsString: aString
-	^aString readStream peek = self!
+	^aString first = self!
 
 _separateSubStringsIn: tokens
-	"Private - Answer the sub-strings of the <readableString> argument
-	 separated by the receiver.
-	Implementation Note: Although this routine is rather more complex than
-	it need be, the performance of #subStrings(:) is important, so it pays
-	to optimize this routine. In particular we try to avoid performing any
-	work in the common cases where the string is either empty, or does not
-	contain the separator at all. However, we must be careful not to over 
-	optimize and prevent correct operation for wide (Unicode) strings."
-
-	| start answer size end |
+	| start answer size end codeUnits |
 	size := tokens size.
 	size == 0 ifTrue: [^{}].
 	end := tokens
@@ -57,9 +66,10 @@ _separateSubStringsIn: tokens
 	end == 0 ifTrue: [^{tokens}].
 	answer := Array writeStream: 5.
 	start := 1.
-	
+	codeUnits := tokens encodedSizeOf: self.
+
 	[answer nextPut: (tokens copyFrom: start to: end - 1).
-	start := end + 1.
+	start := end + codeUnits.
 	end := tokens
 				nextIndexOf: self
 				from: start
@@ -347,17 +357,17 @@ isUpperCase
 isUtf16Lead
 	"Answer whether the receiver is a UTF-16 lead surrogate (leading code unit of two part character)."
 
-	^(code bitAnd: ##(EncodingMask | Utf16SurrogateMask)) == ##(Utf16Mask | 16rD800)!
+	^(code bitAnd: ##(EncodingMask | Utf16SurrogateMask)) == ##(Utf16Mask | Utf16LeadMask)!
 
 isUtf16Surrogate
 	"Answer whether the receiver is a UTF-16 surrogate (partial character)."
 
-	^(code bitAnd: ##(EncodingMask | 16rF800)) == ##(Utf16Mask | 16rD800)!
+	^(code bitAnd: ##(EncodingMask | 16rF800)) == ##(Utf16Mask | Utf16LeadMask)!
 
 isUtf16Trail
 	"Answer whether the receiver is a UTF-16 trail surrogate (trailing code-unit of two-part code point)."
 
-	^(code bitAnd: ##(EncodingMask | Utf16SurrogateMask)) == ##(Utf16Mask | 16rDC00)!
+	^(code bitAnd: ##(EncodingMask | Utf16SurrogateMask)) == ##(Utf16Mask | Utf16TrailMask)!
 
 isUtf8
 	"Answer whether the receiver is a valid UTF-8 code unit. This is true for any ASCII character, or any UTF-8 surrogate."
@@ -391,6 +401,14 @@ isWhitespace
 
 	^self isSeparator!
 
+join: aCollection
+	"Answer a new <String> composed from the elements of the <collection> argument separated by the instances of the receiver."
+
+	| stream |
+	stream := String writeStream: aCollection size * 6.
+	aCollection do: [:each | each displayOn: stream] separatedBy: [stream nextPut: self].
+	^stream contents!
+
 printEscapedOn: aStream
 	"Append the escaped literal representation of the receiver to the <puttableStream> argument."
 
@@ -423,12 +441,68 @@ shallowCopy
 
 	^self!
 
+split: aReadableString
+	"Answer the sub-strings of the <readableString> argument separated by the receiver."
+
+	"Implementation Note: Although this routine is rather more complex than it need be, the performance of #subStrings(:) is important, so it pays to optimize this routine. In particular we try to avoid performing any work in the common cases where the string is either empty, or does not contain the separator at all. However, we must be careful not to over optimize and prevent correct operation for wide (Unicode) strings."
+
+	| start answer size end codeUnits |
+	size := aReadableString size.
+	size == 0 ifTrue: [^{}].
+	end := aReadableString
+				nextIndexOf: self
+				from: 1
+				to: size.
+	end == 0 ifTrue: [^{aReadableString}].
+	answer := Array writeStream: 5.
+	start := 1.
+	codeUnits := aReadableString encodedSizeOf: self.
+	
+	[answer nextPut: (aReadableString copyFrom: start to: end - 1).
+	start := end + codeUnits.
+	end := aReadableString
+				nextIndexOf: self
+				from: start
+				to: size.
+	end == 0]
+			whileFalse.
+	"Copy any remaining chars after the last separator"
+	answer nextPut: (aReadableString copyFrom: start to: size).
+	^answer contents!
+
+split: aReadableString do: aMonadicValuable
+	"Evaluate the <monadicValuable> 2nd argument for each of the sub-strings of the <readableString> 1st argument that are separated by the receiver."
+
+	| start size end codeUnits |
+	size := aReadableString size.
+	end := aReadableString
+				nextIndexOf: self
+				from: 1
+				to: size.
+	end == 0
+		ifTrue: 
+			[aMonadicValuable value: aReadableString.
+			^self].
+	start := 1.
+	codeUnits := aReadableString encodedSizeOf: self.
+	
+	[aMonadicValuable value: (aReadableString copyFrom: start to: end - 1).
+	start := end + codeUnits.
+	end := aReadableString
+				nextIndexOf: self
+				from: start
+				to: size.
+	end == 0]
+			whileFalse.
+	"Evaluate for any remaining chars after the last separator"
+	aMonadicValuable value: (aReadableString copyFrom: start to: size)!
+
 to: aCharacter
 	"Answer a <sequencedReadableCollection> of <Character>s for each of the Unicode code points between the receiver's code point and that of the <Character> argument, aCharacter."
 
 	^(self codePoint to: aCharacter codePoint) collect: [:each | Character codePoint: each]! !
 !Character categoriesFor: #_beginsString:!comparing!double dispatch!private! !
-!Character categoriesFor: #_separateSubStringsIn:!double dispatch!private! !
+!Character categoriesFor: #_separateSubStringsIn:!private!tokenizing! !
 !Character categoriesFor: #<!comparing!public! !
 !Character categoriesFor: #=!comparing!public! !
 !Character categoriesFor: #>!comparing!public! !
@@ -481,10 +555,13 @@ to: aCharacter
 !Character categoriesFor: #isUtf8Trail!public!testing! !
 !Character categoriesFor: #isVowel!public!testing! !
 !Character categoriesFor: #isWhitespace!public!testing! !
+!Character categoriesFor: #join:!public!tokenizing! !
 !Character categoriesFor: #printEscapedOn:!printing!public! !
 !Character categoriesFor: #printOn:!printing!public! !
 !Character categoriesFor: #setCode:!accessing!initializing!private! !
 !Character categoriesFor: #shallowCopy!copying!public! !
+!Character categoriesFor: #split:!public!tokenizing! !
+!Character categoriesFor: #split:do:!public!tokenizing! !
 !Character categoriesFor: #to:!converting!public! !
 
 Character methodProtocol: #Character attributes: #(#ansi #readOnly) selectors: #(#asLowercase #asString #asUppercase #codePoint #isAlphaNumeric #isDigit #isLetter #isLowercase #isUppercase)!
@@ -505,12 +582,6 @@ backspace
 
 	^$\b
 !
-
-basicNew
-	"Characters should not be instantiated directly; they can be created by literal references,
-	by operations on other Characters or Strings, or with the Character>>value: message."
-
-	^self shouldNotImplement!
 
 byteCharacterSet
 	"Answer the ANSI character set, i.e. the complete set of Characters that can be encoded in an <AnsiString>."
@@ -602,10 +673,20 @@ isValidCodePoint: anInteger
 	"Answer whether the <integer> argument represents a valid Unicode code point AND is not a code point reserved for surrogate code units AND is not a 'non-character' (i.e. non-characters are valid code points, but 'reserved for internal use')."
 
 	^anInteger >= 0 and: 
-			[anInteger < 16rD800 or: 
+			[anInteger < Character.Utf16LeadMask or: 
 					[anInteger > 16rDFFF and: 
 							[anInteger <= Win32Constants.MAX_UCSCHAR and: 
 									[(anInteger >= 16rFDD0 and: [anInteger <= 16rFDEF or: [(anInteger bitAnd: 16rFFFE) == 16rFFFE]]) not]]]]!
+
+isValidUtf16CodeUnit: anInteger
+	"Answer whether the <integer> argument is a valid as a code unit in the UTF-16 encoding."
+
+	^anInteger >= 0 and: 
+			[anInteger < Character.Utf16LeadMask or: 
+					[(anInteger bitAnd: 16rF800) == Character.Utf16LeadMask or: 
+							[anInteger < 16rFDD0 or: 
+									[anInteger > 16rFDEF
+										and: [anInteger <= Win32Constants.MAX_UCSCHAR and: [(anInteger allMask: 16rFFFE) not]]]]]]!
 
 lf
 	"Answer the linefeed control <Character>."
@@ -684,22 +765,25 @@ utf16Value: anInteger ifInvalid: exceptionHandler
 
 	^anInteger < 16r80
 		ifTrue: 
-			["Ascii"
-			CharacterSet at: anInteger + 1]
+			[anInteger < 0
+				ifTrue: [exceptionHandler value]
+				ifFalse: 
+					["Ascii"
+					CharacterSet at: anInteger + 1]]
 		ifFalse: 
 			[(AnsiCharacters lookup: anInteger)
 				ifNil: 
-					[(anInteger bitAnd: 16rF800) == 16rD800
+					[(anInteger bitAnd: 16rF800) == Character.Utf16LeadMask
 						ifTrue: 
 							["Surrogate"
 							self newCode: (Utf16Mask bitOr: anInteger)]
 						ifFalse: 
-							[(anInteger <= Win32Constants.MAX_UCSCHAR and: 
-									[(anInteger >= 16rFDD0 and: [anInteger <= 16rFDEF or: [(anInteger bitAnd: 16rFFFE) == 16rFFFE]]) not])
-								ifTrue: 
-									["Valid non-ascii/non-ansi code point"
-									self newCode: (Utf32Mask bitOr: anInteger)]
-								ifFalse: [exceptionHandler value]]]]!
+							[(anInteger <= Win32Constants.MAX_UCSCHAR
+								and: [anInteger < 16rFDD0 or: [anInteger > 16rFDEF and: [(anInteger allMask: 16rFFFE) not]]])
+									ifTrue: 
+										["Valid non-ascii/non-ansi code point"
+										self newCode: (Utf32Mask bitOr: anInteger)]
+									ifFalse: [exceptionHandler value]]]]!
 
 utf8Value: anInteger
 	"Answer a <Character> representing the <integer> UTF-8 code unit, anInteger.
@@ -724,7 +808,6 @@ value: anInteger
 !Character class categoriesFor: #ansiValue:!instance creation!public! !
 !Character class categoriesFor: #asciiValue:!instance creation!public! !
 !Character class categoriesFor: #backspace!constants!public! !
-!Character class categoriesFor: #basicNew!instance creation!public! !
 !Character class categoriesFor: #byteCharacterSet!constants!public! !
 !Character class categoriesFor: #codePoint:!instance creation!public! !
 !Character class categoriesFor: #codePoint:ifInvalid:!instance creation!public! !
@@ -736,6 +819,7 @@ value: anInteger
 !Character class categoriesFor: #euro!constants!public! !
 !Character class categoriesFor: #initialize!development!initializing!public! !
 !Character class categoriesFor: #isValidCodePoint:!enquiries!public! !
+!Character class categoriesFor: #isValidUtf16CodeUnit:!enquiries!public! !
 !Character class categoriesFor: #lf!constants!public! !
 !Character class categoriesFor: #new!instance creation!public! !
 !Character class categoriesFor: #newCode:!instance creation!private! !

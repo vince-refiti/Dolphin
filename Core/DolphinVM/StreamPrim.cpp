@@ -620,7 +620,7 @@ Oop* __fastcall Interpreter::primitiveBasicNext(Oop* const sp, primargcount_t)
 			{
 				switch (ObjectMemory::GetBytesElementSize(reinterpret_cast<BytesOTE*>(oteBuf)))
 				{
-				case 1:
+				case ByteElementSize::Bytes:
 					if (static_cast<size_t>(index) < oteBuf->bytesSize())
 					{
 						uint8_t value = reinterpret_cast<BytesOTE*>(oteBuf)->m_location->m_fields[index];
@@ -632,7 +632,7 @@ Oop* __fastcall Interpreter::primitiveBasicNext(Oop* const sp, primargcount_t)
 						// Out of bounds
 						return primitiveFailure(_PrimitiveFailureCode::OutOfBounds);
 
-				case 2:
+				case ByteElementSize::Words:
 					if (static_cast<size_t>(index) < (oteBuf->bytesSize() / 2))
 					{
 						uint16_t value = reinterpret_cast<WordsOTE*>(oteBuf)->m_location->m_fields[index];
@@ -644,7 +644,7 @@ Oop* __fastcall Interpreter::primitiveBasicNext(Oop* const sp, primargcount_t)
 						// Out of bounds
 						return primitiveFailure(_PrimitiveFailureCode::OutOfBounds);
 
-				case 4:
+				case ByteElementSize::Quads:
 					if (static_cast<size_t>(index) < (oteBuf->bytesSize() / 4))
 					{
 						uint32_t value = reinterpret_cast<QuadsOTE*>(oteBuf)->m_location->m_fields[index];
@@ -706,7 +706,7 @@ Oop* __fastcall Interpreter::primitiveBasicNextPut(Oop* const sp, primargcount_t
 
 				switch (ObjectMemory::GetBytesElementSize(reinterpret_cast<BytesOTE*>(oteBuf)))
 				{
-				case 1:
+				case ByteElementSize::Bytes:
 					if (value <= 0xFF)
 					{
 						if (index < limit && index < oteBuf->bytesSizeForUpdate())
@@ -720,7 +720,7 @@ Oop* __fastcall Interpreter::primitiveBasicNextPut(Oop* const sp, primargcount_t
 					}
 					return primitiveFailure(_PrimitiveFailureCode::IntegerOutOfRange);	// Arg too large
 
-				case 2:
+				case ByteElementSize::Words:
 					if (value <= 0xffff)
 					{
 						if (index < limit && index < oteBuf->bytesSizeForUpdate() / 2)
@@ -734,7 +734,7 @@ Oop* __fastcall Interpreter::primitiveBasicNextPut(Oop* const sp, primargcount_t
 					}
 					return primitiveFailure(_PrimitiveFailureCode::IntegerOutOfRange);	// Arg too large
 
-				case 4:
+				case ByteElementSize::Quads:
 					if (index < limit && index < oteBuf->bytesSizeForUpdate() / 4)
 					{
 						reinterpret_cast<QuadsOTE*>(oteBuf)->m_location->m_fields[index] = value;
@@ -813,7 +813,7 @@ Oop* __fastcall Interpreter::primitiveNextPutAll(Oop* const sp, primargcount_t)
 						return primitiveFailure(_PrimitiveFailureCode::InvalidParameter1);
 					auto oteStringArg= reinterpret_cast<StringOTE*>(oteValue);
 
-					switch (ENCODINGPAIR(ST::String::GetEncoding(oteBuf), ST::String::GetEncoding(oteStringArg)))
+					switch (ENCODINGPAIR(oteBuf->m_oteClass->m_location->m_instanceSpec.m_encoding, oteStringArg->m_oteClass->m_location->m_instanceSpec.m_encoding))
 					{
 					case ENCODINGPAIR(StringEncoding::Ansi, StringEncoding::Ansi):
 					{
@@ -994,6 +994,8 @@ Oop* __fastcall Interpreter::primitiveNextPutAll(Oop* const sp, primargcount_t)
 					auto pb = oteBytesBuf->m_location->m_elements;
 					memcpy(pb + index, bytes->m_elements, valueSize);
 				}
+				else
+					return primitiveFailure(_PrimitiveFailureCode::NotSupported);
 			}
 			else if (bufClass == Pointers.ClassArray)
 			{

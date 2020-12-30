@@ -28,26 +28,26 @@
 #define NameOf(x) #x
 const char* Interpreter::InterruptNames[] = {
 	NULL,
-	NameOf(VMI_TERMINATE),
-	NameOf(VMI_STACKOVERFLOW),
-	NameOf(VMI_BREAKPOINT),
-	NameOf(VMI_SINGLESTEP),
-	NameOf(VMI_ACCESSVIOLATION),
-	NameOf(VMI_IDLEPANIC),
-	NameOf(VMI_GENERIC),
-	NameOf(VMI_STARTED),
-	NameOf(VMI_KILL),
-	NameOf(VMI_FPFAULT),
-	NameOf(VMI_USERINTERRUPT),
-	NameOf(VMI_ZERODIVIDE),
-	NameOf(VMI_OTOVERFLOW),
-	NameOf(VMI_CONSTWRITE),
-	NameOf(VMI_EXCEPTION),
-	NameOf(VMI_FPSTACK),
-	NameOf(VMI_NOMEMORY),
-	NameOf(VMI_HOSPICECRISIS),
-	NameOf(VMI_BEREAVEDCRISIS),
-	NameOf(VMI_CRTFAULT)
+	NameOf(Terminate),
+	NameOf(StackOverflow),
+	NameOf(Breakpoint),
+	NameOf(SingleStep),
+	NameOf(AccessViolation),
+	NameOf(IdlePanic),
+	NameOf(Generic),
+	NameOf(Started),
+	NameOf(Kill),
+	NameOf(FpFault),
+	NameOf(UserInterrupt),
+	NameOf(ZeroDivide),
+	NameOf(OtOverflow),
+	NameOf(ConstWrite),
+	NameOf(Exception),
+	NameOf(FpStack),
+	NameOf(NoMemory),
+	NameOf(HospiceCrisis),
+	NameOf(BereavedCrisis),
+	NameOf(CrtFault)
 };
 #undef NameOf
 
@@ -272,11 +272,11 @@ void Interpreter::asynchronousSignal(SemaphoreOTE* aSemaphore)
 ///////////////////////////////////////////////////////////////////////////////
 // Safely post an interrupt without regard to the execution state. The interrupt will be dispatched
 // to the appropriate process at the earliest opportunity
-void Interpreter::queueInterrupt(ProcessOTE* interruptedProcess, Oop nInterrupt, Oop argPointer)
+void Interpreter::queueInterrupt(ProcessOTE* interruptedProcess, VMInterrupts nInterrupt, Oop argPointer)
 {
 	GrabAsyncProtect();
 	NotifyAsyncPending();
-	m_qInterrupts.Push(nInterrupt);
+	m_qInterrupts.Push(static_cast<SmallInteger>(nInterrupt));
 	m_qInterrupts.Push(Oop(interruptedProcess));
 	m_qInterrupts.Push(argPointer);
 	RelinquishAsyncProtect();
@@ -284,7 +284,7 @@ void Interpreter::queueInterrupt(ProcessOTE* interruptedProcess, Oop nInterrupt,
 
 ///////////////////////////////////////////////////////////////////////////////
 // Queue an interrupt for the current active process
-void Interpreter::queueInterrupt(Oop nInterrupt, Oop argPointer)
+void Interpreter::queueInterrupt(VMInterrupts nInterrupt, Oop argPointer)
 {
 	queueInterrupt(actualActiveProcessPointer(), nInterrupt, argPointer);
 }
@@ -293,12 +293,13 @@ Oop* Interpreter::primitiveQueueInterrupt(Oop* const sp, primargcount_t)
 {
 	// Queue an aysnchronous interrupt to the receiving process
 	ProcessOTE* oteReceiver = reinterpret_cast<ProcessOTE*>(*(sp - 2));
-	Oop interrupt = *(sp - 1); // ecx
+	Oop arg = *(sp - 1); // ecx
 
-	if (ObjectMemoryIsIntegerObject(interrupt))
+	if (ObjectMemoryIsIntegerObject(arg))
 	{
-		Process* targetProcess = oteReceiver->m_location;
+		VMInterrupts interrupt = static_cast<VMInterrupts>(arg);
 
+		Process* targetProcess = oteReceiver->m_location;
 		if (targetProcess->m_suspendedFrame != reinterpret_cast<Oop>(Pointers.Nil))
 		{
 			queueInterrupt(oteReceiver, interrupt, *sp);
@@ -465,7 +466,7 @@ ProcessOTE* Interpreter::wakeHighestPriority()
 			// interrupts must cater for the possibility that even the active process
 			// may actually be in a wait state when an interrupt is sent to it!
 			trace(L"WARNING: No processes are Ready to run\n");
-			queueInterrupt(VMI_IDLEPANIC, Oop(m_bInterruptsDisabled ? Pointers.False : Pointers.True));
+			queueInterrupt(VMInterrupts::IdlePanic, Oop(m_bInterruptsDisabled ? Pointers.False : Pointers.True));
 			return scheduler->m_activeProcess;
 		}
 		OTE* oteList = reinterpret_cast<OTE*>(processLists->m_elements[--index]);
@@ -515,7 +516,7 @@ ProcessOTE* Interpreter::schedule()
 
 
 // Synchronously interrupt the current active process
-void __fastcall Interpreter::sendVMInterrupt(Oop nInterrupt, Oop argPointer)
+void __fastcall Interpreter::sendVMInterrupt(VMInterrupts nInterrupt, Oop argPointer)
 {
 	sendVMInterrupt(actualActiveProcessPointer(), nInterrupt, argPointer);
 }
@@ -523,7 +524,7 @@ void __fastcall Interpreter::sendVMInterrupt(Oop nInterrupt, Oop argPointer)
 // Synchronously send interrupt to a process (in the context of the current active process, which
 // is not necessarily processPointer). The correct way to send an interrupt is to use asynchronousInterrupt()
 // which the VM will send as soon as possible
-void Interpreter::sendVMInterrupt(ProcessOTE* interruptedProcess, Oop nInterrupt, Oop argPointer)
+void Interpreter::sendVMInterrupt(ProcessOTE* interruptedProcess, VMInterrupts nInterrupt, Oop argPointer)
 {
 	/**************************************************************************
 		There are four scenarios to consider:
@@ -605,14 +606,19 @@ void Interpreter::sendVMInterrupt(ProcessOTE* interruptedProcess, Oop nInterrupt
 
 			// If we interrupt a process in an overlapped call, we must suspend it until
 			// return from interrupt.
-			interruptedProc->SuspendOverlappedCall();
+			//interruptedProc->SuspendOverlappedCall();
 
 			// The process is waiting on a list (i.e. its not just suspended)
 			// so we'll remove it from that list, and 
 			LinkedList* suspendingList = oteList->m_location;
 			// The removed link has an artificially raised ref. count to prevent
 			// it going away should it be needed (removeLinkFromList can return nil)
-			(suspendingList->remove(interruptedProcess))->countDown();
+			suspendingList->remove(interruptedProcess);
+			// Now we switch to the interrupted process regardless of priorities
+			// There may be no switch if a new process was waiting to start when the interrupt 
+			// got delivered (the new process was put back to sleep above)
+			switchTo(interruptedProcess);
+			interruptedProcess->countDown();
 			HARDASSERT(!interruptedProcess->isFree());
 		}
 		else
@@ -622,12 +628,8 @@ void Interpreter::sendVMInterrupt(ProcessOTE* interruptedProcess, Oop nInterrupt
 			// interrupt return primitive so that it knows that the process returning
 			// from an interrupt should be suspended.
 			oopListArg = ZeroPointer;
+			switchTo(interruptedProcess);
 		}
-
-		// Now we switch to the interrupted process regardless of priorities
-		// There may be no switch if a new process was waiting to start when the interrupt 
-		// got delivered (the new process was put back to sleep above)
-		switchTo(interruptedProcess);
 	}
 	else
 	{
@@ -662,11 +664,6 @@ void Interpreter::sendVMInterrupt(ProcessOTE* interruptedProcess, Oop nInterrupt
 			(suspendingList->remove(interruptedProcess))->countDown();
 			HARDASSERT(!interruptedProcess->isFree());
 		}
-
-		// If we interrupt a process in an overlapped call, we must suspend the overlapped call
-		// until we return from the interrupt, otherwise it might complete and find us still
-		// on top of it on the stack!.
-		interruptedProc->SuspendOverlappedCall();
 	}
 
 	// The process to which we are delivering the interrupt must be active or we will end up delivering
@@ -685,7 +682,7 @@ void Interpreter::sendVMInterrupt(ProcessOTE* interruptedProcess, Oop nInterrupt
 
 	push(oopListArg);
 	ObjectMemory::countDown(oopListArg);
-	push(nInterrupt);
+	push(static_cast<Oop>(nInterrupt));
 	push(argPointer);			// Arg from the interrupt queue
 	// Can now remove the ref. to the arg, possibly causing its addition to the Zct
 	ObjectMemory::countDown(argPointer);
@@ -773,7 +770,7 @@ BOOL __fastcall Interpreter::FireAsyncEvents()
 	if (m_bStepping)
 	{
 		m_bStepping = false;
-		queueInterrupt(VMI_SINGLESTEP, Oop(m_registers.m_pActiveFrame) + 1);
+		queueInterrupt(VMInterrupts::SingleStep, Oop(m_registers.m_pActiveFrame) + 1);
 	}
 
 	LONG bAsyncPending = InterlockedExchange(&m_bAsyncPending, FALSE);
@@ -803,8 +800,8 @@ BOOL __fastcall Interpreter::FireAsyncEvents()
 		// Send the first interrupt (if any) to the destination process, which may not be the
 		// process that would otherwise run, and indeed that process may not be ready to run. Thus 
 		// we may need to interrupt a process waiting on a Semaphore, and/or reschedule.
-		Oop nInterrupt = m_qInterrupts.Pop();
-		if (nInterrupt != Oop(Pointers.Nil))
+		Oop oopInterrupt = m_qInterrupts.Pop();
+		if (oopInterrupt != Oop(Pointers.Nil))
 		{
 			ProcessOTE* oteProcess = reinterpret_cast<ProcessOTE*>(m_qInterrupts.Pop());
 			HARDASSERT(!oteProcess->isNil());
@@ -812,7 +809,7 @@ BOOL __fastcall Interpreter::FireAsyncEvents()
 			Oop oopArg = m_qInterrupts.Pop();
 #ifdef _DEBUG
 			TRACESTREAM<< L"Interrupting " << oteProcess << std::endl<< L"	with "
-				<< InterruptNames[ObjectMemoryIntegerValueOf(nInterrupt)]<< L"(" << reinterpret_cast<OTE*>(oopArg)<< L")"
+				<< InterruptNames[ObjectMemoryIntegerValueOf(oopInterrupt)]<< L"(" << reinterpret_cast<OTE*>(oopArg)<< L")"
 				<< std::endl;
 #endif
 			// 1) We know the process won't actually get deleted because of the ZCT
@@ -820,9 +817,10 @@ BOOL __fastcall Interpreter::FireAsyncEvents()
 			// that would only happen for a suspended process that is only referenced from
 			// the interrupt queue.
 			oteProcess->countDown();
+			HARDASSERT(!oteProcess->isFree());
 
 			// Handle the first interrupt only (disable interrupts)
-			sendVMInterrupt(oteProcess, nInterrupt, oopArg);
+			sendVMInterrupt(oteProcess, static_cast<VMInterrupts>(oopInterrupt), oopArg);
 
 			// We only process the first interrupt, so there may still be some pending
 			// We leave the flag set if appropriate
@@ -948,7 +946,7 @@ LinkedListOTE* __fastcall Interpreter::ResuspendActiveOn(LinkedListOTE* oteList)
 	ProcessOTE* oteActive = actualActiveProcessPointer();
 	LinkedListOTE* list = ResuspendProcessOn(oteActive, oteList);
 	CHECKREFERENCES
-		return list;
+	return list;
 }
 
 LinkedListOTE* Interpreter::ResuspendProcessOn(ProcessOTE* oteProcess, LinkedListOTE* oteList)
@@ -962,9 +960,6 @@ LinkedListOTE* Interpreter::ResuspendProcessOn(ProcessOTE* oteProcess, LinkedLis
 	// Nasty, but...
 	if (oteList->m_oteClass == Pointers.ClassSemaphore)
 	{
-		Process* proc = oteProcess->m_location;
-		proc->ResumeOverlappedCall();
-
 		// We need to see if the Semaphore now has any excess signals
 		// to avoid incorrectly suspending the process
 		Semaphore* sem = static_cast<Semaphore*>(oteList->m_location);
@@ -1075,7 +1070,7 @@ ProcessOTE* Interpreter::resume(ProcessOTE* aProcess)
 #ifdef _DEBUG
 	int newActivePriority = activeProcess()->Priority();
 	int highestPriorityWaiting = highestWaitingPriority();
- 	HARDASSERT(newActivePriority >= highestPriorityWaiting);
+ 	//HARDASSERT(newActivePriority >= highestPriorityWaiting);
 #endif
 
 	return aProcess;	// We resumed something, even if it was the previously active process
@@ -1575,9 +1570,6 @@ Oop* __fastcall Interpreter::primitiveSuspend(Oop* const sp, primargcount_t)
 	if (nRet != _PrimitiveFailureCode::NoError)
 		return primitiveFailure(nRet);
 
-	Process* process = processPointer->m_location;
-	process->SuspendOverlappedCall();
-
 	return primitiveSuccess(0);			// OK, suspended
 }
 
@@ -1618,20 +1610,6 @@ Oop* __fastcall Interpreter::primitiveTerminateProcess(Oop* const sp, primargcou
 #endif
 	return primitiveSuccess(0);
 }
-
-Oop* __fastcall Interpreter::primitiveUnwindInterrupt(Oop* const, primargcount_t)
-{
-	// Terminate any overlapped call outstanding for the process, this may need to suspend the process
-	// and so this may cause a context switch
-	ProcessOTE* oteActive = actualActiveProcessPointer();
-	OverlappedCallPtr pOverlapped = oteActive->m_location->GetOverlappedCall();
-	if (pOverlapped && pOverlapped->IsInCall())
-	{
-		TerminateOverlapped(oteActive);
-	}
-	return primitiveSuccess(0);
-}
-
 
 // Change the priority of the receiver to the argument.
 // Fail if the argument is not a SmallInteger in the range 1..max priority
@@ -1725,7 +1703,7 @@ Oop* __fastcall Interpreter::primitiveInputSemaphore(Oop* const sp, primargcount
 
 	ObjectMemory::ProtectConstSpace(PAGE_READWRITE);
 	Array* registry = reinterpret_cast<Array*>(&_Pointers);
-	registry->m_elements[which - 1] = ObjectMemory::storePointerWithValue(registry->m_elements[which - 1], oopValue);
+	ObjectMemory::storePointerWithValue(registry->m_elements[which - 1], oopValue);
 	ObjectMemory::ProtectConstSpace(PAGE_READONLY);
 
 	return sp-2;
@@ -1816,29 +1794,4 @@ bool Interpreter::TerminateOverlapped(ProcessOTE* oteProc)
 
 	// The process can be terminated immediately
 	return false;
-}
-
-inline bool Process::SuspendOverlappedCall()
-{
-	OverlappedCallPtr pOverlapped = GetOverlappedCall();
-	if (!pOverlapped || !pOverlapped->IsInCall())
-		return false;
-
-#ifdef _DEBUG
-	TRACESTREAM << std::hex << GetCurrentThreadId()<< L": Suspending " << *pOverlapped<< L" in process " << (OTE*)m_name << std::endl;
-#endif
-	return pOverlapped->QueueSuspend();
-}
-
-inline bool Process::ResumeOverlappedCall()
-{
-	OverlappedCallPtr pOverlapped = GetOverlappedCall();
-	if (!pOverlapped || !pOverlapped->IsInCall())
-		return false;
-
-#ifdef _DEBUG
-	TRACESTREAM << std::hex << GetCurrentThreadId()<< L": Resuming " << *pOverlapped<< L" in process " << reinterpret_cast<OTE*>(m_name) << std::endl;
-#endif
-	pOverlapped->Resume();
-	return true;
 }

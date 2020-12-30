@@ -111,9 +111,14 @@ durationFormat
 	^'-', (self getStringInfo: LOCALE_SDURATION)!
 
 englishDisplayName
-	"The <String> name of the locale in English."
+	"The <String> full name of the locale in English."
 
 	^self getStringInfo: LOCALE_SENGLISHDISPLAYNAME!
+
+englishLanguageName
+	"The <String> name of the language in English."
+
+	^self getStringInfo: LOCALE_SENGLISHLANGUAGENAME!
 
 firstDayOfWeek
 	"Answer an <Integer> in the range 1..7 identifying the first day of the week, where 1 is Monday and 7 is Sunday."
@@ -361,9 +366,7 @@ shortAmDesignator
 		ifAbsentPut: 
 			[VMLibrary default isWindows10OrGreater
 				ifTrue: [self getLocaleInfoString: LOCALE_SSHORTESTAM]
-				ifFalse: 
-					["Might be a wide character"
-					self amDesignator readStream next: 1]]!
+				ifFalse: [self amDesignator first]]!
 
 shortDateFormat
 	"Answer the short date format for the receiver locale."
@@ -382,9 +385,7 @@ shortPmDesignator
 		ifAbsentPut: 
 			[VMLibrary default isWindows10OrGreater
 				ifTrue: [self getLocaleInfoString: LOCALE_SSHORTESTPM]
-				ifFalse: 
-					["Might be a wide character"
-					self pmDesignator readStream next: 1]]!
+				ifFalse: [self pmDesignator first]]!
 
 shortTimeFormat
 	"Answer the short time format for the receiver locale."
@@ -427,6 +428,7 @@ yearMonthFormat
 !WindowsLocale categoriesFor: #displayOn:!displaying!public! !
 !WindowsLocale categoriesFor: #durationFormat!constants!public! !
 !WindowsLocale categoriesFor: #englishDisplayName!displaying!public! !
+!WindowsLocale categoriesFor: #englishLanguageName!constants!public! !
 !WindowsLocale categoriesFor: #firstDayOfWeek!constants!public! !
 !WindowsLocale categoriesFor: #getCalendarInfoInteger:!helpers!private! !
 !WindowsLocale categoriesFor: #getCalendarInfoString:!helpers!private! !
@@ -472,6 +474,9 @@ yearMonthFormat
 
 !WindowsLocale class methodsFor!
 
+reset
+	UserDefault := SystemDefault := nil!
+
 systemLocales: anInteger 
 	"Private - Answer a collection of system locales, depending on the flags argument, anInteger."
 
@@ -485,5 +490,6 @@ systemLocales: anInteger
 	KernelLibrary default enumSystemLocales: enum asParameter dwFlags: anInteger.
 	enum free.
 	^locales collect: [:s | self lcid: (Integer readFrom: s asUppercase readStream radix: 16)]! !
+!WindowsLocale class categoriesFor: #reset!initializing!private! !
 !WindowsLocale class categoriesFor: #systemLocales:!enquiries!private! !
 

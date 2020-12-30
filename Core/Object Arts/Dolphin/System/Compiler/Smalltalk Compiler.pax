@@ -1,6 +1,7 @@
 ﻿| package |
 package := Package name: 'Smalltalk Compiler'.
 package paxVersion: 1;
+	preDeclareClassesOnLoad: false;
 	basicComment: ''.
 
 
@@ -55,7 +56,7 @@ Object subclass: #StVariable
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
 StParseNodeVisitor subclass: #StSemanticAnalyser
-	instanceVariableNames: 'methodNode methodClass evaluationContext currentScope scopes literals stringLiterals addToFrame tempDecls inStaticExpression evalScope'
+	instanceVariableNames: 'methodNode methodClass evaluationContext currentScope scopes literals stringLiterals addToFrame tempDecls inStaticExpression evalScope annotations'
 	classVariableNames: 'OptimizedMessages RestrictedSelectors SpecialSelectors'
 	poolDictionaries: 'SmalltalkParseErrorCodes'
 	classInstanceVariableNames: ''!

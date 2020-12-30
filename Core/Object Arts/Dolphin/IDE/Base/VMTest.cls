@@ -99,13 +99,13 @@ earlyTermination: aBoolean
 	list := proc suspendingList.
 	state := proc state.
 	state == #dead
-		ifTrue: [self assert: aCopy == 0 | (aCopy == 3)]
+		ifTrue: [self assert: a == 0 | (a == 3) description: 'Unexpected state ', aCopy printString]
 		ifFalse: 
 			[| count |
 			"On occasion NT will put Dolphin to sleep for 50mS+ and consequentlty the Process will have finished up anyway"
 
 			"The Process will not be able to terminate until the overlapped call completes"
-			self assert: (list == Processor pendingTerminations or: [list == (proc instVarNamed: 'threadSync')]).
+			self assert: (list == Processor pendingTerminations or: [list == proc threadSync]) description: 'Terminated call waiting on unexpected list ', list printString.
 			"a will still be run, because the VM will not reschedule the process to run the curtailment block until the overlapped
 		call can be terminated."
 			self assert: aCopy identicalTo: 2.
@@ -122,8 +122,8 @@ earlyTermination: aBoolean
 			[proc isTerminated not and: [count < 50]] whileTrue: 
 					[Processor sleep: 1 milliseconds.
 					count := count + 1].
-			self assert: proc isTerminated.
-			self assert: Processor pendingTerminations isEmpty]!
+			self assert: proc isTerminated description: 'Process not terminated: ', proc printString.
+			self assert: Processor pendingTerminations isEmpty description: 'There are still pending terminations']!
 
 elementsExpired: anInteger of: aMourningWeakObject
 	expiryHandler value: anInteger value: aMourningWeakObject!
@@ -339,6 +339,11 @@ isGPF: gpf reading: aBoolean address: anAddress
 	address := info at: 2.
 	^(isReading eqv: aBoolean) and: [address = anAddress]!
 
+skipIfVMDoesNotSupportArgumentConversionsThatAllocateMemoryInOverlappedCalls
+	"Private - Currently it is not safe to performed overlapped calls with parameter types that require conversion and need to allocate memory to perform the conversion. E.g. an lpwstr parameter passed a Utf8String argument. The workaround is to ensure that the arguments are converted to the correct type in Smalltalk, e.g. by sending #asUtf16String to any strings passed as arguments to lpwstr parameters."
+
+	^self skip!
+
 suspendAndTerminate
 	"N.B. Timing is critical to much of this, so its not going to be possible to debug through it. Its really only to show up
 	problems in the VM, so debugging at the Smalltalk level is not terribly useful anyway."
@@ -470,6 +475,8 @@ testEvaluationOrder
 	self assert: (3 between: i and: (i := 4))!
 
 testExtCallArgBstr
+	"Note that BSTR is one of the FFI parameter types that may cause the VM to perform a type conversion that allocates memory, and as such cannot be used safely in overlapped calls unless the calling code is careful to perform all conversions to BSTR from Smalltalk strings in advance with #asBSTR"
+
 	| beers |
 	{''. 'a'. '£2'. 'a' , (String with: Character null) , 'b'} do: 
 			[:each |
@@ -488,69 +495,118 @@ testExtCallArgBstr
 	self assert: (OLEAutLibrary default sysStringLen: beers) equals: 2.
 	self assert: (OLEAutLibrary default sysStringLen: beers asUtf16String) equals: 2!
 
+testExtCallArgLppvoid
+	"Regression test for https://github.com/dolphinsmalltalk/Dolphin/issues/940
+	The issue was intermittent failure of some Active-X related tests that were passing out (and in some cases handling incoming) pointers to buffers that were arrays of pointers and doing so by taking the address of the buffer (yielding an integer) before calling the function with an lppvoid argument type.
+	It turns out that there is a very longstanding bug in the VM FFI that it doesn't correctly handle LargeInteger address values as lppvoid args. Originally when Dolphin was written it expected to run in a 2Gb address space, so addresses were very unlikely to fall outside the SmallInteger range. However at some point in the recent past the application was marked as LARGEADDRESSAWARE, meaning that it is given the full 4GB address space when running on a 64-bit host OS, and a 3Gb address space on a 32-bit host OS. Even so the OS allocates dynamic memory bottom up by default, so it is unusual to encounter an address value that doesn't fit in a SmallInteger. This test forcibly creates LargeInteger address values to check that they pass through such FFI calls correctly."
+
+	self verifyExtCallArgLppvoid: false!
+
 testExtCallArgLpwstr
-	| expected actual method |
-	method := Compiler
-				compile: 'x: aString
-	<stdcall: lpwstr AnswerDWORD lpwstr>
-	| proc |
-	proc := Processor activeProcess.
-	^proc primitiveFailureCode -> proc primitiveFailureData'
-				in: VMLibrary.
-	self assert: method argumentTypes asArray equals: #('lpwstr').
-	self assert: method returnType equals: 'lpwstr'.
-	expected := Utf16String fromByteArray: #[97 0 32 0 163 0 32 0 111 0 114 0 32 0 116 0 119 0 111 0].
-	actual := method value: VMLibrary default withArguments: #('a £ or two').
-	self assert: actual equals: expected.
-	self assert: actual isKindOf: Utf16String.
-	actual := method value: VMLibrary default withArguments: {'a £ or two' asUtf8String}.
-	self assert: actual equals: expected.
-	self assert: actual isKindOf: Utf16String.
-	{String empty. Utf8String empty} do: 
-			[:each |
-			actual := method value: VMLibrary default withArguments: {each}.
-			self assert: actual isKindOf: Utf16String.
-			self assert: actual size equals: 0.
-			self assert: actual equals: Utf16String empty]!
+	self skipIfVMDoesNotSupportArgumentConversionsThatAllocateMemoryInOverlappedCalls.
+	self verifyExtCallArgLpwstr: false!
+
+testExtCallCrtFault
+	self verifyExtCallCrtFault: false!
+
+testExtCallFpFault
+	self verifyExtCallFpFault: false!
+
+testExtCallGpf
+	"Test what happens when the called function GPFs"
+
+	self verifyExtCallGpf: false!
+
+testExtCallIntDivZero
+	"Test what happens when the called function divides by zero"
+
+	self verifyExtCallIntDivZero: false!
+
+testExtCallOverlappedArgLppvoid
+	self verifyExtCallArgLppvoid: true!
+
+testExtCallOverlappedArgLpwstr
+	self skipIfVMDoesNotSupportArgumentConversionsThatAllocateMemoryInOverlappedCalls.
+	self verifyExtCallArgLpwstr: true!
+
+testExtCallOverlappedCrtFault
+	self verifyExtCallCrtFault: true!
+
+testExtCallOverlappedFpFault
+	self verifyExtCallFpFault: true!
+
+testExtCallOverlappedGC
+	| kernel event finished delay1 delay2 |
+	kernel := KernelLibrary default.
+	event := kernel
+				createEvent: nil
+				bManualReset: false
+				bInitialState: false
+				lpName: nil.
+	finished := false.
+	delay1 := Delay forDuration: 50 milliseconds.
+	delay2 := Delay forDuration: 20 milliseconds.
+	
+	[delay1 signal.
+	kernel waitForSingleObject: event dwMilliseconds: -1.
+	finished := true.
+	delay2 signal]
+			forkAt: Processor userInterruptPriority.
+	self deny: finished.
+	delay1 wait.
+	1 timesRepeat: 
+			[MemoryManager current
+				collectGarbage;
+				administerLastRites].
+	self deny: finished.
+	kernel setEvent: event.
+	delay2 wait.
+	self assert: finished!
+
+testExtCallOverlappedGpf
+	"Test what happens when the called function GPFs in an overlapped call thread"
+
+	self verifyExtCallGpf: true!
+
+testExtCallOverlappedIntDivZero
+	"Test what happens when the called function divides by zero"
+
+	self verifyExtCallIntDivZero: true!
+
+testExtCallOverlappedRetHRESULT
+	"Test that HRESULT return codes are translated into exceptions correctly by overlapped calls."
+
+	self verifyExtCallRetHRESULT: true!
+
+testExtCallOverlappedRetLpwstr
+	self verifyExtCallRetLpwstr: true!
+
+testExtCallOverlappedRetNtStatus
+	self verifyExtCallRetNtStatus: true!
+
+testExtCallOverlappedSuspendAndTerminate
+	5 timesRepeat: [self suspendAndTerminate]!
+
+testExtCallOverlappedTermination
+	"N.B. Timing is critical to much of this, so its not going to be possible to debug through it. Its really only to show up
+	problems in the VM, so debugging at the Smalltalk level is not terribly useful anyway."
+
+	"1) Call is terminated before completion, before it has even started in fact"
+
+	1 to: 5 do: [:i | self earlyTermination: false].
+	"2) Call is terminated before completion, but is allowed to start"
+	1 to: 5 do: [:i | self earlyTermination: true]!
 
 testExtCallRetHRESULT
 	"Test that HRESULT return codes are translated into exceptions correctly."
 
-	| method |
-	method := self
-				compile: 'hresult: anInteger
-	<stdcall: hresult AnswerDWORD dword>
-	^self invalidCall: _failureCode'
-				in: VMLibrary.
-	#(0 1 16r3FFFFFFF 16r40000000 16r7FFFFFFF) do: 
-			[:each |
-			| result |
-			result := method value: VMLibrary default withArguments: {each}.
-			self assert: result isKindOf: Integer.
-			self assert: result equals: each.
-			self assert: each class identicalTo: result class].
-
-	"Negative HRESULTs should cause the primitive to fail with the failure data set to the HR code. Note that the unused bit 27 is lost."
-	#(16rFFFFFFFF 16r80004005 16rC0000000 16rBFFFFFFF 16r80000000 16rEABCFFFF 16r80290422) do: 
-			[:each |
-			self
-				should: [method value: VMLibrary default withArguments: {each}]
-				raise: HRESULTError
-				matching: [:ex | ex hresult = (HRESULT fromUnsignedInteger: (each bitAnd: 16r8000000 bitInvert))]]!
+	self verifyExtCallRetHRESULT: false!
 
 testExtCallRetLpwstr
-	| expected actual method |
-	method := Compiler
-				compile: 'w: anInteger
-	<stdcall: lpwstr AnswerDWORD lpvoid>
-	| proc |
-	proc := Processor activeProcess.
-	^proc primitiveFailureCode -> proc primitiveFailureData'
-				in: VMLibrary.
-	expected := 'oña' asUtf16String.
-	actual := method value: VMLibrary default withArguments: {expected yourAddress}.
-	self assert: actual equals: expected.
-	self assert: actual isKindOf: Utf16String!
+	self verifyExtCallRetLpwstr: false!
+
+testExtCallRetNtStatus
+	self verifyExtCallRetNtStatus: false!
 
 testFPFaultInPrimitive
 	"An FP fault occurring in a primitive should be reported in the primitive method, not some
@@ -1097,71 +1153,6 @@ testMustBeBoolean
 	self assert: (pseudoTrue ifTrue: [1 + 2 + 3 + 4] ifFalse: [2]) equals: 1 + 2 + 3 + 4.
 	self assert: (pseudoFalse ifTrue: [1 + 2 + 3 + 4] ifFalse: [2]) equals: 2!
 
-testOverlappedCallGC
-	| kernel event finished delay1 delay2 |
-	kernel := KernelLibrary default.
-	event := kernel
-				createEvent: nil
-				bManualReset: false
-				bInitialState: false
-				lpName: nil.
-	finished := false.
-	delay1 := Delay forDuration: 50 milliseconds.
-	delay2 := Delay forDuration: 20 milliseconds.
-	
-	[delay1 signal.
-	kernel waitForSingleObject: event dwMilliseconds: -1.
-	finished := true.
-	delay2 signal]
-			forkAt: Processor userInterruptPriority.
-	self deny: finished.
-	delay1 wait.
-	1 timesRepeat: 
-			[MemoryManager current
-				collectGarbage;
-				administerLastRites].
-	self deny: finished.
-	kernel setEvent: event.
-	delay2 wait.
-	self assert: finished!
-
-testOverlappedCallInvalidArguments
-	"Invalid arguments should be detected and handled as for a non-overlapped call."
-	self
-		should: [KernelLibrary default sleep: 's']
-		raise: InvalidExternalCall
-		matching: [:ex | ex argument = 's' and: [ex type = 'dword' and: [ex tag = 1]]].
-!
-
-testOverlappedCallRetHRESULT
-	"Test that HRESULT return codes are translated into exceptions correctly by overlapped calls."
-
-	| method |
-	method := self
-				compile: 'hr: anInteger <overlap stdcall: hresult AnswerDWORD sdword> ^self invalidCall: _failureCode'
-				in: VMLibrary.
-	{HRESULT win32Error: 1234. HRESULT fromUnsignedInteger: 16r80290422} do: 
-			[:each |
-			self
-				should: [method value: VMLibrary default withArguments: {each asInteger}]
-				raise: HRESULTError
-				matching: [:ex | ex hresult = each]].
-	"Positive codes are success values"
-	#(0 1 16r40290423)
-		do: [:each | self assert: (method value: VMLibrary default withArguments: {each}) equals: each]!
-
-testOverlappedCallsSuspendAndTerminate
-	5 timesRepeat: [self suspendAndTerminate]!
-
-testOverlappedCallTermination
-	"N.B. Timing is critical to much of this, so its not going to be possible to debug through it. Its really only to show up
-	problems in the VM, so debugging at the Smalltalk level is not terribly useful anyway."
-
-	"1) Call is terminated before completion, before it has even started in fact"
-	1 to: 5 do: [:i | self earlyTermination: false].
-	"2) Call is terminated before completion, but is allowed to start"
-	1 to: 5 do: [:i | self earlyTermination: true]!
-
 testPrimitiveAdd
 	| method |
 	method := self createPrimitiveMethodLike: SmallInteger >> #+.
@@ -1383,6 +1374,56 @@ testPrimitiveBytesIsNull
 			bytes := DWORDBytes newFixed: each.
 			self assert: bytes isNull]!
 
+testPrimitiveChangeBehavior
+	"Test the becomeA:/becomeAn: primitive. We have to be careful not to pass literals as we don't want to mutate the test method."
+
+	| method obj |
+	method := self createPrimitiveMethodLike: Object >> #becomeA:.
+	obj := Array new.
+	"Valid cases, although the resulting object is only guaranteed to be valid at the basic level understood by the VM"
+	{{Object new. Array. #()}.
+		{obj. Object. obj}.
+		{'a' -> 'b'. Array. #('a' 'b')}.
+		{{'a'. 'b'}. Association. 'a' -> 'b'}.
+		{10 @ 20 -> (100 @ 200). Rectangle. 10 @ 20 corner: 100 @ 200}.
+		{ExternalHandle fromInteger: 1234. DWORDBytes. DWORDBytes fromInteger: 1234}.
+		{Object guid. CLSID. CLSID fromString: '{87b4c451-026e-11d3-9fd7-00a0cc3e4a32}'}.
+		{{1. 0}. OrderedCollection. OrderedCollection new}.
+		{{1. 2. 'a'. 'b'}. OrderedCollection. OrderedCollection with: 'a' with: 'b'}.
+		{OrderedCollection with: 'a' with: 'b'. Array. #(1 2 'a' 'b')}.
+		{OrderedCollection new. Set. Set with: 0}.
+		{123. SmallInteger. 123}.
+		{16r3FFFFFFF. ByteArray. #[255 255 255 63]}.
+		{Utf8String with: $a. Utf8String. 'a'}.
+		{ByteArray with: 128. ByteArray. #[128]}.
+		{{'a'. 'b'}. Array. #('a' 'b')}} do: 
+				[:each |
+				| subject result operand expected |
+				subject := each first.
+				operand := each second.
+				expected := each third.
+				result := method value: subject withArguments: {operand}.
+				self assert: result class identicalTo: operand.
+				self assert: result equals: expected].
+	"Invalid cases"
+	"Note that byte objects with different element sizes/encodings (e.g. different String encodings) are not considered type compatible. This could be refined in future, but staying with it for now."
+	{{Object new. Association}.
+		{1 -> 2. Object}.
+		{{1. 2. 3}. Association}.
+		{{}. Association}.
+		{{1}. Association}.
+		{ByteArray new. Array}.
+		{{}. ByteArray}.
+		{ExternalAddress new. ByteArray}.
+		{{1}. OrderedCollection}.
+		{AnsiString with: $a. Utf8String}} do: 
+				[:each |
+				| subject operand result |
+				subject := each first.
+				operand := each second.
+				result := method value: subject withArguments: {operand}.
+				self assert: result equals: 'ObjectTypeMismatch']!
+
 testPrimitiveCopyFromTo
 	| method |
 	method := self
@@ -1415,11 +1456,11 @@ testPrimitiveCopyFromTo
 			actual := method value: each withArguments: #(1 1).
 			self assert: actual size equals: 1.
 			self assert: actual class identicalTo: each class.
-			self assert: actual first equals: each first.
+			self assert: (actual at: 1) equals: (each at: 1).
 			actual := method value: each withArguments: #(2 2).
 			self assert: actual size equals: 1.
 			self assert: actual class identicalTo: each class.
-			self assert: actual first equals: each last.
+			self assert: (actual at: 1) equals: (each at: each size).
 			actual := method value: each withArguments: #(1 2).
 			self assert: actual size equals: 2.
 			self assert: actual class identicalTo: each class.
@@ -1441,17 +1482,17 @@ testPrimitiveCopyFromTo
 				self assert: actual size equals: 2.
 				self assert: actual class identicalTo: expectedClass.
 				self assert: actual first equals: each first.
-				self assert: actual last equals: each second.
+				self assert: (actual at: actual size) equals: (each at: 2).
 				actual := method value: each withArguments: #(2 3).
 				self assert: actual size equals: 2.
 				self assert: actual class identicalTo: expectedClass.
-				self assert: actual first equals: each second.
-				self assert: actual last equals: each third.
+				self assert: (actual at: 1) equals: (each at: 2).
+				self assert: (actual at: actual size) equals: (each at: 3).
 				actual := method value: each withArguments: #(3 4).
 				self assert: actual size equals: 2.
 				self assert: actual class identicalTo: expectedClass.
-				self assert: actual first equals: each third.
-				self assert: actual last equals: each last.
+				self assert: (actual at: 1) equals: (each at: 3).
+				self assert: (actual at: actual size) equals: (each at: each size).
 				actual := method value: each withArguments: #(1 4).
 				self assert: actual size equals: 4.
 				self assert: actual class identicalTo: expectedClass.
@@ -1691,6 +1732,12 @@ testPrimitiveHashBytes
 			self assert: (method value: each asAnsiString withArguments: #())
 				equals: (method value: each asUtf8String withArguments: #())].
 	#('🐬' '你好') do: [:each | self assert: each asUtf16String hash equals: each asUtf8String hash]!
+
+testPrimitiveHighBit
+	| method |
+	method := self createPrimitiveMethodLike: SmallInteger >> #highBit.
+	{0. 0. 1. 1. 2. 2. SmallInteger maximum. VMConstants.IntPtrBits - 2. -1. 'IntegerOutOfRange'. SmallInteger minimum. 'IntegerOutOfRange'}
+		pairsDo: [:each :expected | self assert: (method value: each withArguments: #()) equals: expected]!
 
 testPrimitiveIdentical
 	| method |
@@ -2348,6 +2395,20 @@ testPrimitiveResume
 	self assert: e isDead.
 	self assert: a isDead!
 
+testPrimitiveSetMutableInstVar
+	| method assoc |
+	method := (Association >> #value:) copy.
+	method extraIndex: 49.
+	assoc := 1 -> 2.
+	self deny: assoc isImmutable.
+	method value: assoc withArguments: #(3).
+	self assert: assoc value identicalTo: 3.
+	assoc isImmutable: true.
+	self should: [assoc value: 4] raise: Processor constWriteSignal.
+	self assert: assoc value identicalTo: 3.
+	method value: assoc withArguments: #(4).
+	self assert: assoc value identicalTo: 4!
+
 testPrimitiveSetSpecialBehavior
 	| method subject before after nullTermMask |
 	method := self createPrimitiveMethodLike: Object >> #setSpecialBehavior:.
@@ -2535,7 +2596,7 @@ testPrimitiveStringCmp
 	"Test case sensitive string comparison primitive"
 
 	| method |
-	method := self createPrimitiveMethodLike: String >> #trueCompare:.
+	method := self createPrimitiveMethodLike: String >> #<==>.
 	"Note that we don't test that the primitive fails for a non-String receiver - in general primitives assume they are only used in methods of suitable receiver classes."
 	#(#('a' 'b' -1) #('A' 'a' 1) #('abc' 'ABC' -1) #('abc' 'abc' 0) #('' 'a' -1) #('a' 'ab' -1) #('ab' 'a' 1) #('a' 1 'InvalidParameter1'))
 		do: 
@@ -2554,7 +2615,7 @@ testPrimitiveStringCollate
 	"Test case insensitive string comparison primitive"
 
 	| method |
-	method := self createPrimitiveMethodLike: String >> #_collate:.
+	method := self createPrimitiveMethodLike: String >> #<=>.
 	"Note that we don't test that the primitive fails for a non-String receiver - in general primitives assume they are only used in methods of suitable receiver classes."
 	#(#('a' 'b' -1) #('b' 'a' 1) #('abc' 'ABC' 0) #('A' 'a' 0) #('' 'a' -1) #('a' 'ab' -1) #('ab' 'a' 1) #('a' 1 'InvalidParameter1'))
 		do: 
@@ -2571,28 +2632,135 @@ testPrimitiveStringCollate
 	self assert: (method value: 'a' withArguments: {WeakArray new}) equals: 'InvalidParameter1'!
 
 testPrimitiveStringNextIndexOfFromTo
-	| method foundCases nonIntegerToFrom fromOutOfBounds toOutOfBounds emptyIntervalBounds notFoundCases |
-	method := self createPrimitiveMethodLike: AnsiString >> #nextIndexOf:from:to:.
+	| method subject foundCases nonIntegerToFrom fromOutOfBounds toOutOfBounds emptyIntervalBounds notFoundCases |
+	method := self createPrimitiveMethodLike: String >> #nextIdentityIndexOf:from:to:.
 	foundCases := #(#('aabc' $a 1 1 1) #('aabc' $a 1 2 1) #('a' $a 1 1 1) #('aabc' $a 2 3 2) #('abc' $c 1 3 3) #('abac' $a 2 4 3)).
-	nonIntegerToFrom := #(#('aabc' $a $b 4 'InvalidParameter1') #('aabc' $a nil 4 'InvalidParameter1') #('aabc' $a 1 nil 'InvalidParameter2')).
+	nonIntegerToFrom := #(#('aabc' $a $b 4 'InvalidParameter2') #('aabc' $a nil 4 'InvalidParameter2') #('aabc' $a 1 nil 'InvalidParameter3')).
 	fromOutOfBounds := #(#('aabc' $a 0 4 'OutOfBounds') #('aabc' $a -1 4 'OutOfBounds')).
 	emptyIntervalBounds := #(#('aabc' $a 1 -1 0) #('aabc' $a 1 0 0) #('aabc' $a 4 3 0) #('aabc' $a 5 4 0) #('' $a 1 0 0)).
 	toOutOfBounds := #(#('aabc' $a 1 5 'OutOfBounds') #('' $a 1 2 'OutOfBounds')).
-	notFoundCases := #(#('aabc' $d 1 1 0) #('aabc' $d 1 2 0) #('abc' $d 1 3 0) #('abac' nil 1 4 0))
-				asOrderedCollection.
+	notFoundCases := {#('aabc' $d 1 1 0).
+				#('aabc' $d 1 2 0).
+				#('abc' $d 1 3 0).
+				#('abac' nil 1 4 0).
+				{'abcd'. Character dolphin. 1. 4. 0}.
+				{Character dolphin asUtf8String asByteArray asAnsiString.
+					Character dolphin asUtf8String at: 2.
+					1.
+					4.
+					0}.
+				{Character dolphin asUtf16String asByteArray asAnsiString.
+					Character dolphin asUtf16String at: 2.
+					1.
+					4.
+					0}}
+					asOrderedCollection.
 	"Fails on earlier VM, as it truncates the codepoint to the first byte, which means $\x161 gets treated as $a"
 	notFoundCases add: {'abc'. Character value: 16r161. 1. 3. 0}.
 	foundCases , nonIntegerToFrom , fromOutOfBounds , emptyIntervalBounds , toOutOfBounds
 		, notFoundCases do: 
 				[:each |
-				| subject actual char start stop expected |
+				| actual char start stop expected |
 				subject := each first.
 				char := each second.
 				start := each third.
 				stop := each fourth.
 				expected := each last.
 				actual := method value: subject withArguments: {char. start. stop}.
-				self assert: actual equals: expected]!
+				self assert: actual equals: expected].
+	"UTF strings are now supported too"
+	{'aa£aa' asAnsiString. 'aa£aa' asUtf8String. 'aa£aa' asUtf16String} do: 
+			[:each |
+			1 to: each size do: [:i | self assert: (method value: each withArguments: {$a. 1. i}) equals: 1].
+			self assert: (method value: each withArguments: #($£ 1 4)) equals: 3.
+			{each size + 1. SmallInteger maximum} do: 
+					[:i |
+					self assert: (method value: each withArguments: {$a. 1. i}) equals: 'OutOfBounds'.
+					self assert: (method value: each withArguments: {$a. i. i}) equals: 'OutOfBounds'].
+			{-1. 0. SmallInteger minimum} do: 
+					[:i |
+					self assert: (method value: each withArguments: {$a. 1. i}) equals: 0.
+					self assert: (method value: each withArguments: {$a. i. each size}) equals: 'OutOfBounds']].
+	subject := '𝕬 🐬 string' asUtf16String.
+	1 to: 4
+		do: 
+			[:i |
+			"Search should work, even if we start in the middle of a 32-bit character"
+			self assert: (subject
+						nextIdentityIndexOf: Character dolphin
+						from: i
+						to: subject size)
+				equals: 4.
+			"Search for surrogates - this should work, again regardless of whether we start in the middle of a character"
+			self assert: (subject
+						nextIdentityIndexOf: Character dolphin asUtf16String first
+						from: i
+						to: subject size)
+				equals: 4].
+	1 to: 7
+		do: 
+			[:i |
+			self assert: (subject
+						nextIdentityIndexOf: $s
+						from: i
+						to: subject size)
+				equals: 7].
+	"Similarly, can search for UTF-16 trail surrogates"
+	1 to: 5
+		do: 
+			[:i |
+			self assert: (subject
+						nextIdentityIndexOf: (Character dolphin asUtf16String at: 2)
+						from: i
+						to: subject size)
+				equals: 5].
+	"Utf16Strings can never contain UTF-8 surrogates"
+	subject := Utf16String
+				withAll: (Character dolphin asUtf8String asByteArray asArray collect: [:each | Character value: each]).
+	1 to: 4
+		do: 
+			[:i |
+			| ch |
+			ch := '🐬' at: i.
+			self assert: ch isUtf8Surrogate.
+			self assert: (subject
+						nextIdentityIndexOf: ch
+						from: 1
+						to: subject size)
+				equals: 0].
+	subject := '£ 🐬 string'.
+	self assert: subject encoding equals: #utf8.
+	1 to: 4
+		do: 
+			[:i |
+			"Search should work, even if we start in the middle of a 32-bit character"
+			self assert: (subject
+						nextIdentityIndexOf: $\x1F42C
+						from: i
+						to: subject size)
+				equals: 4].
+	1 to: 9
+		do: 
+			[:i |
+			self assert: (subject
+						nextIdentityIndexOf: $s
+						from: i
+						to: subject size)
+				equals: 9].
+	1 to: 4
+		do: 
+			[:i |
+			| ch |
+			ch := '🐬' at: i.
+			1 to: 3 + i
+				do: 
+					[:j |
+					"Search for UTF-8 surrogates - this should work, again regardless of whether we start in the middle of a character"
+					self assert: (subject
+								nextIdentityIndexOf: ch
+								from: j
+								to: subject size)
+						equals: 3 + i]]!
 
 testPrimitiveStructIsNull
 	| method subject |
@@ -2853,6 +3021,168 @@ verifyBinaryPrimitive: method forCases: aCollectionOfTriples
 			self assert: result class identicalTo: expected class.
 			self assert: result equals: expected]!
 
+verifyExtCallArgLppvoid: aBoolean
+	| method string result address |
+	method := Compiler compile: ('x: aString
+	%<<1?overlap :>stdcall: uintptr AnswerDWORD lppvoid>
+	^_failureCode'
+						expandMacrosWith: aBoolean)
+				in: VMLibrary.
+	string := 'Hello World' asAnsiString.
+	"Sanity check"
+	address := string yourAddress asExternalAddress.
+	result := method value: VMLibrary default withArguments: {address}.
+	self assert: result equals: address basicYourAddress.
+
+	"Integers are a special case - they should pass through directly as the pointer value"
+	address := string yourAddress.
+	result := method value: VMLibrary default withArguments: {address}.
+	self assert: result equals: address.
+
+	"Now check LI"
+	address := string yourAddress becomeA: LargeInteger.
+	result := method value: VMLibrary default withArguments: {address}.
+	self assert: result equals: string yourAddress!
+
+verifyExtCallArgLpwstr: aBoolean
+	| method expected actual |
+	method := Compiler
+				compile: ('x: aString
+	%<<1?overlap :>stdcall: lpwstr AnswerDWORD lpwstr>
+	^_failureCode'
+						expandMacrosWith: aBoolean)
+				in: VMLibrary.
+	self assert: method argumentTypes asArray equals: #('lpwstr').
+	self assert: method returnType equals: 'lpwstr'.
+	expected := Utf16String fromByteArray: #[97 0 32 0 163 0 32 0 111 0 114 0 32 0 116 0 119 0 111 0].
+	actual := method value: VMLibrary default withArguments: {expected}.
+	self assert: actual equals: expected.
+	self deny: actual == expected.
+	self assert: actual isKindOf: Utf16String.
+	actual := method value: VMLibrary default withArguments: #('a £ or two').
+	self assert: actual equals: expected.
+	self assert: actual isKindOf: Utf16String.
+	actual := method value: VMLibrary default withArguments: {'a £ or two' asUtf8String}.
+	self assert: actual equals: expected.
+	self assert: actual isKindOf: Utf16String.
+	{String empty. Utf8String empty} do: 
+			[:each |
+			actual := method value: VMLibrary default withArguments: {each}.
+			self assert: actual isKindOf: Utf16String.
+			self assert: actual size equals: 0.
+			self assert: actual equals: Utf16String empty]!
+
+verifyExtCallCrtFault: aBoolean
+	| lib |
+	lib := aBoolean ifTrue: [CRTLibrary nonblocking] ifFalse: [CRTLibrary default].
+	self
+		should: [lib chmod: nil pmode: 0]
+		raise: CRTError
+		matching: [:ex | ex tag == CRTConstants.EINVAL]!
+
+verifyExtCallFpFault: aBoolean
+	| method exceptions fpFault |
+	method := self compile: ('sqrt: arg %<<1?overlap :>stdcall: double sqrt double> ^_failureCode'
+						expandMacrosWith: aBoolean)
+				in: CRTLibrary.
+	exceptions := OrderedCollection new.
+	[2 timesRepeat: [method value: CRTLibrary default withArguments: #(-1)]] on: FloatingPointException
+		do: [:ex | exceptions add: ex].
+	self assert: exceptions size equals: 1.
+	fpFault := exceptions first.
+	self assert: fpFault tag causeName identicalTo: #InvalidOperation.
+	self assert: fpFault tag operationName identicalTo: #SquareRoot.
+	self assert: fpFault tag operand1 value equals: -1.0!
+
+verifyExtCallGpf: aBoolean
+	| method |
+	method := self
+				compile: ('test: anInteger %<<1?overlap :>stdcall: lpstr AnswerDWORD lpvoid> ^self invalidCall: _failureCode'
+						expandMacrosWith: aBoolean)
+				in: VMLibrary.
+	"The call is repeated to verify that the threaded call is reset properly when the exception is handled. If it isn't then this will fail with i = 2"
+	1 to: 2
+		do: 
+			[:i |
+			self
+				should: [method value: VMLibrary default withArguments: #(1)]
+				raise: GPFault
+				matching: 
+					[:ex |
+					ex inaccessibleAddress = 1
+						and: [ex isReading and: [ex moduleFileName = VMLibrary default moduleFileName]]]]!
+
+verifyExtCallIntDivZero: aBoolean
+	| method |
+	method := self
+				compile: ('ldiv: numer denom: denom %<<1?overlap :>stdcall: qword ldiv sdword sdword> ^self invalidCall: _failureCode'
+						expandMacrosWith: aBoolean)
+				in: CRTLibrary.
+	self
+		should: [method value: CRTLibrary default withArguments: #(123 0)]
+		raise: ZeroDivide
+		matching: [:ex | ex dividend = 123]!
+
+verifyExtCallRetHRESULT: aBoolean
+	| method |
+	method := self
+				compile: ('hresult: anInteger
+	%<<1?overlap :>stdcall: hresult AnswerDWORD dword>
+	^self invalidCall: _failureCode' expandMacrosWith: aBoolean)
+				in: VMLibrary.
+	#(0 1 16r3FFFFFFF 16r40000000 16r7FFFFFFF) do: 
+			[:each |
+			| result |
+			result := method value: VMLibrary default withArguments: {each}.
+			self assert: result isKindOf: Integer.
+			self assert: result equals: each.
+			self assert: each class identicalTo: result class].
+
+	"Negative HRESULTs should cause the primitive to fail with the failure data set to the HR code. Note that the unused bit 27 is lost."
+	#(16rFFFFFFFF 16r80004005 16rC0000000 16rBFFFFFFF 16r80000000 16rEABCFFFF 16r80290422) do: 
+			[:each |
+			self
+				should: [method value: VMLibrary default withArguments: {each}]
+				raise: HRESULTError
+				matching: [:ex | ex hresult = (HRESULT fromUnsignedInteger: (each bitAnd: 16r8000000 bitInvert))]]!
+
+verifyExtCallRetLpwstr: aBoolean
+	| method expected actual |
+	method := Compiler
+				compile: ('w: anInteger
+	%<<1?overlap :>stdcall: lpwstr AnswerDWORD lpvoid>
+	^self _failureCode'
+						expandMacrosWith: aBoolean)
+				in: VMLibrary.
+	expected := 'oña' asUtf16String.
+	actual := method value: VMLibrary default withArguments: {expected yourAddress}.
+	self assert: actual equals: expected.
+	self assert: actual isKindOf: Utf16String!
+
+verifyExtCallRetNtStatus: aBoolean
+	| method |
+	method := self
+				compile: ('ntstatus: anInteger
+	%<<1?overlap :>stdcall: ntstatus AnswerDWORD dword>
+	^self invalidCall: _failureCode'
+						expandMacrosWith: aBoolean)
+				in: VMLibrary.
+	#(0 1 16r3FFFFFFF 16r40000000 16r7FFFFFFF) do: 
+			[:each |
+			| result |
+			result := method value: VMLibrary default withArguments: {each}.
+			self assert: result isKindOf: Integer.
+			self assert: result equals: each.
+			self assert: each class identicalTo: result class].
+
+	"Negative HRESULTs should cause the primitive to fail with a failure code that can be decoded to a valid NTSTATUS code, which is then translated to an HRESULT by the addition of FACILITY_NT_BIT, and raised as an HRESULTError."
+	#(16rC0000001 16rC0EC0007) do: 
+			[:each |
+			self
+				should: [method value: VMLibrary default withArguments: {each}]
+				raise: HRESULTError
+				matching: [:ex | ex hresult asUnsignedInteger = (each bitOr: HRESULT.FACILITY_NT_BIT)]]!
+
 verifyPrimitiveAt: opAt performBlock: performAt
 	| array outOfBounds notAnIntFormat |
 	array := (-100 to: 100) asArray.
@@ -2916,7 +3246,7 @@ verifyPrimitiveAt: opAt performBlock: performAt
 			lit := opAt value: array value: 2.
 			lit == WeakArray or: [(lit isKindOf: VariableBinding) and: [lit value == WeakArray]]].
 	self assert: (opAt value: array value: 3) identicalTo: #setDependents:.
-	self assert: (opAt value: array value: array size) identicalTo: #add:.
+	self assert: (opAt value: array value: array size) identicalTo: #ifTrue:.
 	{-1. 0. array size + 1. SmallInteger maximum. SmallInteger minimum} do: 
 			[:each |
 			self should: [opAt value: array value: each] raise: BoundsError.
@@ -3184,6 +3514,7 @@ verifyPrimitiveNextPutAllOnUtfStrings: method
 !VMTest categoriesFor: #immutableTestSubjects!constants!private!unit tests! !
 !VMTest categoriesFor: #isFault:raisedIn:receiver:!helpers!private! !
 !VMTest categoriesFor: #isGPF:reading:address:!helpers!private! !
+!VMTest categoriesFor: #skipIfVMDoesNotSupportArgumentConversionsThatAllocateMemoryInOverlappedCalls!helpers!private! !
 !VMTest categoriesFor: #suspendAndTerminate!helpers!private! !
 !VMTest categoriesFor: #testAllReferences!public!unit tests! !
 !VMTest categoriesFor: #testAllReferencesWeak!public! !
@@ -3192,9 +3523,27 @@ verifyPrimitiveNextPutAllOnUtfStrings: method
 !VMTest categoriesFor: #testDwordAtOffsetPut!public!unit tests! !
 !VMTest categoriesFor: #testEvaluationOrder!public!unit tests! !
 !VMTest categoriesFor: #testExtCallArgBstr!public!unit tests! !
+!VMTest categoriesFor: #testExtCallArgLppvoid!public!unit tests! !
 !VMTest categoriesFor: #testExtCallArgLpwstr!public!unit tests! !
+!VMTest categoriesFor: #testExtCallCrtFault!public! !
+!VMTest categoriesFor: #testExtCallFpFault!public! !
+!VMTest categoriesFor: #testExtCallGpf!public! !
+!VMTest categoriesFor: #testExtCallIntDivZero!public! !
+!VMTest categoriesFor: #testExtCallOverlappedArgLppvoid!public!unit tests! !
+!VMTest categoriesFor: #testExtCallOverlappedArgLpwstr!public!unit tests! !
+!VMTest categoriesFor: #testExtCallOverlappedCrtFault!public! !
+!VMTest categoriesFor: #testExtCallOverlappedFpFault!public! !
+!VMTest categoriesFor: #testExtCallOverlappedGC!public!unit tests! !
+!VMTest categoriesFor: #testExtCallOverlappedGpf!public! !
+!VMTest categoriesFor: #testExtCallOverlappedIntDivZero!public! !
+!VMTest categoriesFor: #testExtCallOverlappedRetHRESULT!public!unit tests! !
+!VMTest categoriesFor: #testExtCallOverlappedRetLpwstr!public!unit tests! !
+!VMTest categoriesFor: #testExtCallOverlappedRetNtStatus!public!unit tests! !
+!VMTest categoriesFor: #testExtCallOverlappedSuspendAndTerminate!public!unit tests! !
+!VMTest categoriesFor: #testExtCallOverlappedTermination!public!unit tests! !
 !VMTest categoriesFor: #testExtCallRetHRESULT!public!unit tests! !
 !VMTest categoriesFor: #testExtCallRetLpwstr!public!unit tests! !
+!VMTest categoriesFor: #testExtCallRetNtStatus!public!unit tests! !
 !VMTest categoriesFor: #testFPFaultInPrimitive!public!unit tests! !
 !VMTest categoriesFor: #testFPStatus!public!unit tests! !
 !VMTest categoriesFor: #testGPFTrap!public!unit tests! !
@@ -3216,11 +3565,6 @@ verifyPrimitiveNextPutAllOnUtfStrings: method
 !VMTest categoriesFor: #testIntDivideByZero!public!unit tests! !
 !VMTest categoriesFor: #testMakeLargeUnsigned!public!unit tests! !
 !VMTest categoriesFor: #testMustBeBoolean!public!unit tests! !
-!VMTest categoriesFor: #testOverlappedCallGC!public!unit tests! !
-!VMTest categoriesFor: #testOverlappedCallInvalidArguments!public!unit tests! !
-!VMTest categoriesFor: #testOverlappedCallRetHRESULT!public!unit tests! !
-!VMTest categoriesFor: #testOverlappedCallsSuspendAndTerminate!public!unit tests! !
-!VMTest categoriesFor: #testOverlappedCallTermination!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveAdd!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveAllInstances!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveAllMask!public!unit tests! !
@@ -3232,6 +3576,7 @@ verifyPrimitiveNextPutAllOnUtfStrings: method
 !VMTest categoriesFor: #testPrimitiveBitShift!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveBytesEqual!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveBytesIsNull!public!unit tests! !
+!VMTest categoriesFor: #testPrimitiveChangeBehavior!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveCopyFromTo!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveDiv!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveDivide!public!unit tests! !
@@ -3242,6 +3587,7 @@ verifyPrimitiveNextPutAllOnUtfStrings: method
 !VMTest categoriesFor: #testPrimitiveGreaterOrEqual!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveGreaterThan!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveHashBytes!public!unit tests! !
+!VMTest categoriesFor: #testPrimitiveHighBit!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveIdentical!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveIndexOfSp!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveInstanceCounts!public!unit tests! !
@@ -3266,6 +3612,7 @@ verifyPrimitiveNextPutAllOnUtfStrings: method
 !VMTest categoriesFor: #testPrimitiveQuo!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveReplaceElements!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveResume!public!unit tests! !
+!VMTest categoriesFor: #testPrimitiveSetMutableInstVar!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveSetSpecialBehavior!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveShallowCopy!public!unit tests! !
 !VMTest categoriesFor: #testPrimitiveSize!public!unit tests! !
@@ -3284,6 +3631,15 @@ verifyPrimitiveNextPutAllOnUtfStrings: method
 !VMTest categoriesFor: #testVMPointersImmutable!public!unit tests! !
 !VMTest categoriesFor: #testWeakMournerNotifications!public!unit tests! !
 !VMTest categoriesFor: #verifyBinaryPrimitive:forCases:!helpers!private! !
+!VMTest categoriesFor: #verifyExtCallArgLppvoid:!helpers!private! !
+!VMTest categoriesFor: #verifyExtCallArgLpwstr:!helpers!private! !
+!VMTest categoriesFor: #verifyExtCallCrtFault:!helpers!private! !
+!VMTest categoriesFor: #verifyExtCallFpFault:!helpers!private! !
+!VMTest categoriesFor: #verifyExtCallGpf:!helpers!private! !
+!VMTest categoriesFor: #verifyExtCallIntDivZero:!helpers!private! !
+!VMTest categoriesFor: #verifyExtCallRetHRESULT:!helpers!private! !
+!VMTest categoriesFor: #verifyExtCallRetLpwstr:!helpers!private! !
+!VMTest categoriesFor: #verifyExtCallRetNtStatus:!helpers!private! !
 !VMTest categoriesFor: #verifyPrimitiveAt:performBlock:!helpers!private! !
 !VMTest categoriesFor: #verifyPrimitiveAtPut:performBlock:!helpers!private! !
 !VMTest categoriesFor: #verifyPrimitiveNextPutAllOnAnsiString:!helpers!private! !

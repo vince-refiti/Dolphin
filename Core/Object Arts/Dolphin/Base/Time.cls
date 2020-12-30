@@ -55,8 +55,11 @@ asSYSTEMTIME
 		wHour: self hour24;
 		wMinute: self minute;
 		wSecond: self second truncated;
-		wMilliseconds: self millisecond rounded;
+		wMilliseconds: self millisecond truncated;
 		yourself!
+
+asTimeStamp
+	^self asDateAndTime asTimeStamp!
 
 displayOn: aStream
 	"Append to the <puttableStream> argument, aStream, a String whose characters are a representation of this<Time> that a user in the current<Locale> might expect to see."
@@ -115,7 +118,7 @@ printStringFormat: aString
 	| stream |
 	stream := String writeStream: aString size.
 	self printOn: stream format: aString.
-	^stream contents!
+	^stream grabContents!
 
 second
 	"Answer a <rational> in the range [0, 60), representing the second of the minute of the local time of the receiver, including any fractional part."
@@ -153,6 +156,7 @@ subtractTime: aTimeOrDate
 !Time categoriesFor: #asParameter!converting!public! !
 !Time categoriesFor: #asSeconds!converting!public! !
 !Time categoriesFor: #asSYSTEMTIME!converting!public! !
+!Time categoriesFor: #asTimeStamp!converting!public! !
 !Time categoriesFor: #displayOn:!printing!public! !
 !Time categoriesFor: #hash!comparing!public! !
 !Time categoriesFor: #hour!accessing!public! !

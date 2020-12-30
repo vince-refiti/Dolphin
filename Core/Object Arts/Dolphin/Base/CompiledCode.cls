@@ -55,8 +55,8 @@ Note: These are implementation details, and should not be relied upon as they ma
 		do: 
 			[:i | 
 			| a b |
-			a := self at: i.
-			b := aMethod at: i.
+			a := self basicAt: i.
+			b := aMethod basicAt: i.
 			"The static blocks must be equal if they are implemented by this method and
 			the bytecodes and all other literals are identical"
 			(a class == BlockClosure and: [a method == self]) 
@@ -82,7 +82,7 @@ allLiteralsDo: operation
 	"Implementation Note: As Dolphin does not have separate methods for blocks (to save space), this is the
 	same as #literalsDo:, but we inline it for speed"
 
-	1 to: self literalCount do: [:i | operation value: (self at: i)]!
+	1 to: self literalCount do: [:i | operation value: (self basicAt: i)]!
 
 allSymbolLiterals
 	"Answer a  <collection> of all the symbols referred to from the literal
@@ -158,7 +158,7 @@ byteCodes: anObject
 				ifTrue: [anObject]
 				ifFalse: [self class packByteCodes: anObject].
 	codes isImmutable: true.
-	byteCodes := codes!
+	self setByteCodes: codes!
 
 byteCodeSegments
 	^self byteCodeDispatcher segments!
@@ -223,6 +223,13 @@ extraIndex
 	See class comment for further details."
 
 	^(header bitShift: -23) bitAnd: 255!
+
+extraIndex: anInteger
+	"Private - Set the extraIndex in the method header - used as the primitive index."
+
+	"The header value must be a SmallInteger, but holds a 31-bit value so may be negative - asStackPointer is not well named, but ensures that the full 31-bits can be held in the SmallInteger range."
+
+	header := ((header bitAnd: 16r7FFFFF) bitOr: ((anInteger bitAnd: 255) bitShift: 23)) asStackPointer!
 
 getDebugInfo
 	"Private - Invoke the compiler to answer a compilation result containing a 
@@ -326,7 +333,7 @@ literalAt: anInteger
 	"Implementation Note: Compiled methods are standard pointer objects in Dolphin, with the
 	literal frame stored in the indexable part, therefore #at: and #literalAt: are synonms."
 
-	^self at: anInteger!
+	^self basicAt: anInteger!
 
 literalAt: anInteger put: aValue
 	"Private - Replace the literal of the receiver at index, anInteger, with aValue."
@@ -338,24 +345,23 @@ literalCount
 
 	^self size!
 
-literalReferencesDo: operation 
+literalReferencesDo: operation
 	"Private - Evaluate the <monadicValuable>, operation, for each of the literals of the
 	receiver, and each of the elements of any Array literals recursing down through any
 	intermediate literal arrays."
 
 	1 to: self literalCount
 		do: 
-			[:i | 
+			[:i |
 			| each |
-			each := self at: i.
-			operation value: each.
+			operation value: (each := self basicAt: i).
 			(each class == Array and: [each isImmutable]) ifTrue: [self literalArray: each do: operation]]!
 
 literals
 	"Private - Answer an array of the literals in the receiver."
 
 	| count |
-	count := self literalCount.
+	count := self size.
 	^self
 		replaceElementsOf: (Array new: count)
 		from: 1
@@ -379,7 +385,7 @@ literalsDo: operation
 	"Private - Evaluate the monadic valuable, operation, for each of the receivers
 	literals."
 
-	1 to: self literalCount do: [:i | operation value: (self at: i)]!
+	1 to: self literalCount do: [:i | operation value: (self basicAt: i)]!
 
 localCount
 	"Private - Answer the total number of stack temporaries (including arguments) used by the receiver."
@@ -463,7 +469,7 @@ refersToLiteral: anObject
 	"Implementation Note: This deliberately does not take account of special selectors and is open
 	coded for speed."
 
-	1 to: self size do: [:i | ((self at: i) refersToLiteral: anObject) ifTrue: [^true]].
+	1 to: self size do: [:i | ((self basicAt: i) refersToLiteral: anObject) ifTrue: [^true]].
 	^false!
 
 replaceElementsOf: anIndexableObject from: startInteger to: stopInteger startingAt: startAtInteger
@@ -510,6 +516,7 @@ sendsSpecialSelector: anInteger
 	^self byteCodeDispatcher sendsSpecialSelector: anInteger!
 
 setByteCodes: anObject 
+	<mutable>
 	byteCodes := anObject!
 
 sourceDescriptor
@@ -520,10 +527,10 @@ sourceDescriptor
 	^sourceDescriptor!
 
 sourceDescriptor: anObject
-	"Private - Set the receiver's source descriptor to anObject. This should normally only be
-	sent by the receiver's source manager."
+	"Private - Set the receiver's source descriptor to anObject. This should normally only be sent by the receiver's source manager."
 
-	self whileMutableDo: [sourceDescriptor := anObject]!
+	<mutable>
+	sourceDescriptor := anObject!
 
 specialMessages
 	"Private - Answer a Collection of all the special message selectors which
@@ -624,6 +631,7 @@ writesInstVar: aString at: anInteger
 !CompiledCode categoriesFor: #envTempCount!accessing!development!public! !
 !CompiledCode categoriesFor: #evaluationPools!accessing!development!public! !
 !CompiledCode categoriesFor: #extraIndex!method header!private! !
+!CompiledCode categoriesFor: #extraIndex:!method header!private! !
 !CompiledCode categoriesFor: #getDebugInfo!development!private! !
 !CompiledCode categoriesFor: #getSource!accessing!development!public! !
 !CompiledCode categoriesFor: #hash!comparing!public! !
@@ -696,6 +704,10 @@ initialize
 	"
 
 	self addClassConstant: 'PrivateMask' value: 16r1.
+	self addClassConstant: 'SimpleAccessorBytes'
+		value: (self packByteCodes: {ShortSendSelfZeroArgs. ReturnFromMessage} asByteArray).
+	self addClassConstant: 'SimpleMutatorBytes'
+		value: (self packByteCodes: {ShortSendSelfZeroArgs. PopReturnSelf} asByteArray).
 	self initializeInfoCache!
 
 initializeInfoCache

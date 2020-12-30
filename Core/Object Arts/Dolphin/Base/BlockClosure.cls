@@ -113,12 +113,13 @@ Info word usage:
 !BlockClosure categoriesForClass!Kernel-Methods! !
 !BlockClosure methodsFor!
 
-= aBlockClosure 
+= aBlockClosure
 	^aBlockClosure class == self class and: 
 			[method = aBlockClosure method and: 
-					[outer = aBlockClosure outer and: 
-							[self size = aBlockClosure size 
-								and: [(1 to: self size) allSatisfy: [:i | (self at: i) = (aBlockClosure at: i)]]]]]!
+					[initialIP = aBlockClosure initialIP and: 
+							[outer = aBlockClosure outer and: 
+									[self size = aBlockClosure size
+										and: [(1 to: self size) allSatisfy: [:i | (self at: i) = (aBlockClosure at: i)]]]]]].!
 
 argumentCount
 	"Answer the <integer> number of arguments expected by the receiver."
@@ -140,6 +141,17 @@ atPriority: anInteger
 	proc := Processor activeProcess.
 	activePriority := proc priority: anInteger.
 	^self ensure: [proc priority: activePriority]!
+
+copiedValues
+	"Private - Answer an array of the copiedValues in the receiver."
+
+	| count |
+	count := self size.
+	^self
+		replaceElementsOf: (Array new: count)
+		from: 1
+		to: count
+		startingAt: 1!
 
 critical
 	"Private - Evaluate the receiver as a Critical Section with asynchronous process switching disabled.
@@ -538,6 +550,23 @@ repeat
 	[self value.
 	true] whileTrue!
 
+replaceElementsOf: anIndexableObject from: startInteger to: stopInteger startingAt: startAtInteger
+	"Private - Replace the indexable instance variables of the variable pointer object,
+	anIndexableObject, between startInteger and stopInteger inclusive with literals from the
+	receiver starting from startAtInteger. Answers anIndexableObject."
+
+	<primitive: 188>
+	| offset |
+	offset := startAtInteger - startInteger.
+	(anIndexableObject == self and: [startAtInteger < startInteger])
+		ifTrue: 
+			[stopInteger to: startInteger
+				by: -1
+				do: [:i | anIndexableObject basicAt: i put: (self basicAt: offset + i)]]
+		ifFalse: 
+			[startInteger to: stopInteger do: [:i | anIndexableObject basicAt: i put: (self basicAt: offset + i)]].
+	^anIndexableObject!
+
 stackTempCount
 	"Private - Answer the <integer> number of extra stack temps (in addition to the arguments)
 	used by the receiver. This number of stack slots is reserved and nilled every time
@@ -559,13 +588,14 @@ tempCount
 ticksToRun
 	"Private - Answer the number of performance counter ticks consumed by the evaluation of the receiver (including the overhead). The length of a counter tick is system dependent, but usually it is 100nS."
 
-	| startTime endTime lib |
+	| startTime endTime lib endTimeAddress |
 	startTime := LargeInteger new64.
 	endTime := LargeInteger new64.
+	endTimeAddress := endTime basicYourAddress.
 	lib := KernelLibrary default.
-	lib queryPerformanceCounter: startTime yourAddress.
+	lib queryPerformanceCounter: startTime basicYourAddress.
 	self value.
-	lib queryPerformanceCounter: endTime yourAddress.
+	lib queryPerformanceCounter: endTimeAddress.
 	^endTime normalize - startTime normalize!
 
 timeToRepeat: anInteger
@@ -634,7 +664,9 @@ valueFailed: failureCode argumentCount: anInteger
 	"Private - A primitive value call failed, generate an appropriate error"
 
 	^failureCode == _PrimitiveFailureCode.WrongNumberOfArgs
-		ifTrue: [self error: ('Block expects <1p> argument(s)' expandMacrosWith: self argumentCount)]
+		ifTrue: 
+			[self error: ('Block expects <1p> argument(s), <2p> given' expandMacrosWith: self argumentCount
+						with: anInteger)]
 		ifFalse: [self primitiveFailed: failureCode]!
 
 valueOnUnwind: aTwoArgBlock
@@ -736,6 +768,7 @@ whileTrue: iterationBlock
 !BlockClosure categoriesFor: #argumentCount:!accessing!development!private! !
 !BlockClosure categoriesFor: #asBlock!accessing!converting!public! !
 !BlockClosure categoriesFor: #atPriority:!evaluating!public! !
+!BlockClosure categoriesFor: #copiedValues!private! !
 !BlockClosure categoriesFor: #critical!private!scheduling! !
 !BlockClosure categoriesFor: #cull:!evaluating!public! !
 !BlockClosure categoriesFor: #cull:cull:!evaluating!public! !
@@ -780,6 +813,7 @@ whileTrue: iterationBlock
 !BlockClosure categoriesFor: #receiver!accessing!private! !
 !BlockClosure categoriesFor: #receiver:!accessing!private! !
 !BlockClosure categoriesFor: #repeat!evaluating!public! !
+!BlockClosure categoriesFor: #replaceElementsOf:from:to:startingAt:!public!replacing! !
 !BlockClosure categoriesFor: #stackTempCount!accessing!private! !
 !BlockClosure categoriesFor: #stackTempCount:!accessing!development!private! !
 !BlockClosure categoriesFor: #tempCount!accessing!public! !

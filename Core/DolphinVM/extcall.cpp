@@ -136,12 +136,15 @@ AddressOTE* __fastcall NewBSTR(const char16_t* pChars, size_t len)
 }
 
 // Answer a new BSTR converted from the a byte string with the specified encoding
-template <codepage_t CP, class TChar> static AddressOTE* __fastcall NewBSTR(const TChar* szContents, size_t len)
+template <codepage_t CP, class TChar> static AddressOTE* __fastcall NewBSTR(const TChar* psz, size_t cch)
 {
-	Utf16StringOTE* utf16 = Utf16String::New<CP>(szContents, len);
-	AddressOTE* answer = NewBSTR(utf16->m_location->m_characters, utf16->getSize() / sizeof(Utf16String::CU));
-	ObjectMemory::deallocateByteObject((OTE*)utf16);
-	return answer;
+	const UINT cp = CP == CP_ACP ? Interpreter::m_ansiCodePage : CP;
+	int cwch = cch * 2;
+	char16_t* buf = reinterpret_cast<char16_t*>(_malloca(cwch * 2));
+	cwch = ::MultiByteToWideChar(cp, 0, reinterpret_cast<LPCCH>(psz), cch, reinterpret_cast<LPWSTR>(buf), cwch);
+	AddressOTE* bstr = NewBSTR(buf, cwch);
+	_freea(buf);
+	return bstr;
 }
 
 AddressOTE* __fastcall NewBSTR(OTE* ote)
@@ -178,7 +181,8 @@ Utf16StringOTE* __fastcall ST::Utf16String::New(OTE* oteString)
 {
 	ASSERT(oteString->isNullTerminated());
 
-	switch (ST::String::GetEncoding(oteString))
+	switch (oteString->m_oteClass->m_location->m_instanceSpec.m_encoding)
+
 	{
 	case StringEncoding::Ansi:
 		return Utf16String::New<CP_ACP>(reinterpret_cast<const AnsiStringOTE*>(oteString)->m_location->m_characters, oteString->getSize());
@@ -213,6 +217,22 @@ inline void Interpreter::push(LPCWSTR pStr)
 BytesOTE* __fastcall NewGUID(GUID* rguid)
 {
 	return ObjectMemory::newByteObject(Pointers.ClassGUID, sizeof(GUID), rguid);
+}
+
+FARPROC Interpreter::GetDllCallProcAddress(DolphinX::ExternalMethodDescriptor* descriptor, LibraryOTE* oteReceiver)
+{
+	HMODULE hModule = static_cast<HMODULE>(oteReceiver->m_location->m_handle->m_location->m_handle);
+	LPCSTR procName = reinterpret_cast<LPCSTR>(descriptor->m_descriptor.m_args + descriptor->m_descriptor.m_argsLen);
+	int ordinal = atoi(procName);
+	if (ordinal != 0)
+	{
+		procName = reinterpret_cast<LPCSTR>(ordinal);
+	}
+
+	FARPROC proc = ::GetProcAddress(hModule, procName);
+	descriptor->m_proc = proc;
+
+	return proc;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -322,13 +342,13 @@ argcount_t Interpreter::pushArgsAt(const ExternalDescriptor* descriptor, uint8_t
 				break;
 				
 			case ExtCallArgType::UInt64:
-				push(Integer::NewUnsigned64(*reinterpret_cast<ULONGLONG*>(lpParms)));
-				lpParms += sizeof(ULARGE_INTEGER);
+				push(Integer::NewUnsigned64(*reinterpret_cast<uint64_t*>(lpParms)));
+				lpParms += sizeof(uint64_t);
 				break;
 				
 			case ExtCallArgType::Int64:
-				push(Integer::NewSigned64(*reinterpret_cast<LONGLONG*>(lpParms)));
-				lpParms += sizeof(LONGLONG);
+				push(Integer::NewSigned64(*reinterpret_cast<int64_t*>(lpParms)));
+				lpParms += sizeof(int64_t);
 				break;
 			
 			case ExtCallArgType::Bstr:

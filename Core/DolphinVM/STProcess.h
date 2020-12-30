@@ -96,11 +96,6 @@ namespace ST
 
 		OverlappedCall* GetOverlappedCall();
 
-		// Suspend any active overlapped call thread associated with the receiver, if any
-		bool SuspendOverlappedCall();
-		// Resume any active overlapped call thread associated with the receiver, if any
-		bool ResumeOverlappedCall();
-
 		Oop Name() const { return reinterpret_cast<Oop>(m_name); }
 		bool IsWaiting() const { return !m_myList->isNil(); }
 		bool IsWaitingOn(const LinkedListOTE* oteList) const { return m_myList == oteList; }
@@ -196,7 +191,10 @@ namespace ST
 	public:
 		ProcessOTE* m_firstLink;
 		ProcessOTE* m_lastLink;
-		enum { FirstLinkIndex = SequenceableCollection::FixedSize, LastLinkIndex, FixedSize };
+		
+		static constexpr size_t FirstLinkIndex = SequenceableCollection::FixedSize;
+		static constexpr size_t LastLinkIndex = FirstLinkIndex + 1;
+		static constexpr size_t FixedSize = LastLinkIndex + 1;
 
 		bool isEmpty();
 		void addLast(ProcessOTE* aLink);
@@ -208,7 +206,8 @@ namespace ST
 	{
 	public:
 		Oop m_excessSignals;
-		enum { ExcessSignalsIndex = LinkedList::FixedSize };
+
+		static constexpr size_t ExcessSignalsIndex = LinkedList::FixedSize;
 
 		DWORD Wait(SemaphoreOTE* oteThis, ProcessOTE* oteProcess, int nTimeout);
 
@@ -230,10 +229,13 @@ namespace ST
 		Oop  m_unused;
 		SemaphoreOTE* m_pendingTerms;
 
-		enum {
-			ProcessListsIndex = ObjectFixedSize, ActiveProcessIndex, PendingReturns,
-			ComStubsIndex, Reserved1, PendingTermsIndex, FixedSize
-		};
+		static constexpr size_t ProcessListsIndex = Object::FixedSize;
+		static constexpr size_t ActiveProcessIndex = ProcessListsIndex + 1;
+		static constexpr size_t PendingReturns = ActiveProcessIndex + 1;
+		static constexpr size_t ComStubsIndex = PendingReturns + 1;
+		static constexpr size_t Reserved1 = ComStubsIndex + 1;
+		static constexpr size_t PendingTermsIndex = Reserved1 + 1;
+		static constexpr size_t FixedSize = PendingTermsIndex + 1;
 
 #ifdef _DEBUG
 		bool IsValid();

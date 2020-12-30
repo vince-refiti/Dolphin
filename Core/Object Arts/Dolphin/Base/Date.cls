@@ -137,6 +137,10 @@ asSYSTEMTIME
 				wDay: dd].
 	^struct!
 
+asTimeStamp
+	^self asDateAndTime asTimeStamp
+!
+
 day
 	"Answer the day of the year represented by the receiver."
 
@@ -256,7 +260,7 @@ printStringFormat: aString
 	| stream |
 	stream := String writeStream: aString size.
 	self printOn: stream format: aString.
-	^stream contents!
+	^stream grabContents!
 
 seconds
 	"Answer the <number> of seconds past midnight in the local time of the receiver.
@@ -327,7 +331,7 @@ yyyymmdd
 		printDate: self
 		on: stream
 		format: 'yyyy-MM-dd'.
-	^stream contents! !
+	^stream grabContents! !
 !Date categoriesFor: #<!comparing!public! !
 !Date categoriesFor: #=!comparing!public! !
 !Date categoriesFor: #addDays:!arithmetic!public! !
@@ -341,6 +345,7 @@ yyyymmdd
 !Date categoriesFor: #asParameter!converting!public! !
 !Date categoriesFor: #asSeconds!converting!public! !
 !Date categoriesFor: #asSYSTEMTIME!converting!public! !
+!Date categoriesFor: #asTimeStamp!converting!public! !
 !Date categoriesFor: #day!accessing!public! !
 !Date categoriesFor: #dayMonthYearDo:!accessing!public! !
 !Date categoriesFor: #dayOfMonth!accessing!public! !

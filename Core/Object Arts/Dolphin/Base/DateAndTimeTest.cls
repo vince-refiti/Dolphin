@@ -117,7 +117,22 @@ testAsSYSTEMTIME
 	self assert: actual wHour equals: 12.
 	self assert: actual wMinute equals: 59.
 	self assert: actual wSecond equals: 59.
-	self assert: actual wMilliseconds equals: 667!
+	"Milliseconds are truncated to avoid rounding to 1000 and creating an invalid SYSTEMTIME"
+	self assert: actual wMilliseconds equals: 666!
+
+testAsSYSTEMTIMEInvalidMilliseconds
+	"#1045 - wMillisecond must never be 1000, even if that is what the millisecond value we have would round to"
+
+	| subject actual |
+	subject := DateAndTime
+				year: 2000
+				day: 1
+				hour: 0
+				minute: 0
+				second: 599995 / 10000.
+	actual := subject asSYSTEMTIME.
+	self assert: actual wSecond equals: 59.
+	self assert: actual wMilliseconds equals: 999!
 
 testAsTime
 	"Offset is ignored - the date is not adjusted to local time"
@@ -650,6 +665,7 @@ testYearMonthDayHourMinuteSecondOffsetErrors
 !DateAndTimeTest categoriesFor: #testAsDate!public!unit tests! !
 !DateAndTimeTest categoriesFor: #testAsSeconds!public!unit tests! !
 !DateAndTimeTest categoriesFor: #testAsSYSTEMTIME!public!unit tests! !
+!DateAndTimeTest categoriesFor: #testAsSYSTEMTIMEInvalidMilliseconds!public!unit tests! !
 !DateAndTimeTest categoriesFor: #testAsTime!public!unit tests! !
 !DateAndTimeTest categoriesFor: #testAsUnixTime!public!unit tests! !
 !DateAndTimeTest categoriesFor: #testAsUTC!public!unit tests! !

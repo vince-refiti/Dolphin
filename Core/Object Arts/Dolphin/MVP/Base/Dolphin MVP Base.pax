@@ -1,6 +1,7 @@
 ﻿| package |
 package := Package name: 'Dolphin MVP Base'.
 package paxVersion: 1;
+	preDeclareClassesOnLoad: false;
 	basicComment: 'Dolphin Smalltalk Graphical User Interface framework.
 Copyright (c) Object Arts Ltd. 1997-2018. Portions Copyright (c) CGI Group (Europe) Ltd. 1997.
 '.
@@ -180,6 +181,7 @@ package classNames
 	add: #SelectionChangedEvent;
 	add: #SelectionChangeEvent;
 	add: #SelectionChangingEvent;
+	add: #SettingsChangeEvent;
 	add: #Shell;
 	add: #ShellView;
 	add: #SIZE;
@@ -416,7 +418,7 @@ Object subclass: #Canvas
 	poolDictionaries: 'Win32Constants'
 	classInstanceVariableNames: ''!
 Object subclass: #Clipboard
-	instanceVariableNames: 'isOpen registeredFormats'
+	instanceVariableNames: 'isOpen registeredFormats idToName'
 	classVariableNames: 'Current'
 	poolDictionaries: 'Win32Constants'
 	classInstanceVariableNames: ''!
@@ -672,6 +674,11 @@ WindowsEvent subclass: #PositionEvent
 	classInstanceVariableNames: ''!
 WindowsEvent subclass: #ScrollEvent
 	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+WindowsEvent subclass: #SettingsChangeEvent
+	instanceVariableNames: 'area'
 	classVariableNames: ''
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!

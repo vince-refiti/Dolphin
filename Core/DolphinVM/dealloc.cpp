@@ -32,13 +32,11 @@ inline void ObjectMemory::releasePointer(OTE* ote)
 	HARDASSERT(ote->m_count == 0);
 	HARDASSERT(!ote->isFree());
 	ote->beFree();
-//	if (!m_pFreePointerList)
-//		_asm int 3;
 
-	ote->m_location = reinterpret_cast<POBJECT>(m_pFreePointerList);
+	ote->m_location = MakeNextFree(m_pFreePointerList);
 	m_pFreePointerList = ote;
 
-#ifdef _DEBUG
+#ifdef TRACKFREEOTEs
 	m_nFreeOTEs++;
 #endif
 
@@ -57,7 +55,7 @@ void ObjectMemory::freeChunk(POBJECT pObj)
 #endif
 
 	#ifdef PRIVATE_HEAP
-		::HeapFree(m_hHeap, HEAP_NO_SERIALIZE, pObj);
+		::HeapFree(m_hHeap, 0, pObj);
 	#else
 		free(pObj);
 	#endif
@@ -82,39 +80,39 @@ void ObjectMemory::deallocate(OTE* ote)
 	// We can have up to 256 different destructors (8 bits)
 	switch (ote->heapSpace())
 	{
-		case OTEFlags::NormalSpace:
+		case Spaces::Normal:
 			freeChunk(ote->m_location);
  			releasePointer(ote);
 			break;
 
-		case OTEFlags::VirtualSpace:
+		case Spaces::Virtual:
 			::VirtualFree(static_cast<VirtualObject*>(ote->m_location)->getHeader(), 0, MEM_RELEASE);
  			releasePointer(ote);
 			break;
 
-		case OTEFlags::BlockSpace:
-			Interpreter::m_otePools[Interpreter::BLOCKPOOL].deallocate(ote);
+		case Spaces::Blocks:
+			Interpreter::m_otePools[static_cast<size_t>(Interpreter::Pools::Blocks)].deallocate(ote);
 			break;
 
-		case OTEFlags::ContextSpace:
+		case Spaces::Contexts:
 			// Return it to the interpreter's free list of contexts
-			Interpreter::m_otePools[Interpreter::CONTEXTPOOL].deallocate(ote);
+			Interpreter::m_otePools[static_cast<size_t>(Interpreter::Pools::Contexts)].deallocate(ote);
 			break;
 
-		case OTEFlags::DWORDSpace:
-			Interpreter::m_otePools[Interpreter::DWORDPOOL].deallocate(ote);
+		case Spaces::Dwords:
+			Interpreter::m_otePools[static_cast<size_t>(Interpreter::Pools::Dwords)].deallocate(ote);
 			break;
 
-		case OTEFlags::HeapSpace:
+		case Spaces::Heap:
 			//_asm int 3;
 			HARDASSERT(FALSE);
 			break;
 		
-		case OTEFlags::FloatSpace:
-			Interpreter::m_otePools[Interpreter::FLOATPOOL].deallocate(ote);
+		case Spaces::Floats:
+			Interpreter::m_otePools[static_cast<size_t>(Interpreter::Pools::Floats)].deallocate(ote);
 			break;
 
-		case OTEFlags::PoolSpace:
+		case Spaces::Pools:
 		{
 			size_t size = ote->sizeOf();
 			HARDASSERT(size <= MaxSmallObjectSize);
@@ -153,7 +151,7 @@ void ObjectMemory::OTEPool::clear()
 		
 		// All objects on the free list originated from pool space, so we need to
 		// send them back there
-		ote->m_flags.m_space = OTEFlags::PoolSpace;
+		ote->m_flags.m_space = static_cast<space_t>(Spaces::Pools);
 
 		VariantObject* pObj = static_cast<VariantObject*>(ote->m_location);
 		m_pFreeList = reinterpret_cast<OTE*>(pObj->m_fields[0]);

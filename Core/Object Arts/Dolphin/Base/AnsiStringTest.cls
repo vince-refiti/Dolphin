@@ -1,6 +1,6 @@
 ﻿"Filed out from Dolphin Smalltalk 7"!
 
-AbstractStringTest subclass: #AnsiStringTest
+StringTest subclass: #AnsiStringTest
 	instanceVariableNames: ''
 	classVariableNames: ''
 	poolDictionaries: ''
@@ -14,7 +14,7 @@ assimilate: each
 	^Character ansiValue: each asInteger!
 
 assimilateString: aString
-	^aString!
+	^aString asAnsiString!
 
 collectionClass
 	^AnsiString!
@@ -44,10 +44,34 @@ testAsPhrase
 	self assert: #GetIDsOfNames:rgszNames:cNames:lcid:rgdispid: asPhrase
 		equals: 'Get IDs Of Names Rgsz Names C Names Lcid Rgdispid'!
 
+testBeginsWithIgnoreCase
+	| subject comperand pound |
+	pound := Character value: 163.
+	subject := self newCollection: {$a. $\0. $£. $b. $c}.
+	self assert: (subject beginsWith: subject ignoreCase: true).
+	self assert: (subject beginsWith: subject ignoreCase: false).
+	comperand := self newCollection: {$A. $\0. pound}.
+	self assert: (subject beginsWith: comperand ignoreCase: true).
+	self deny: (subject beginsWith: comperand ignoreCase: false).
+	comperand := self newCollection: {$A. $\0. $b. pound}.
+	self deny: (subject beginsWith: comperand ignoreCase: false).
+	self deny: (subject beginsWith: comperand ignoreCase: true)!
+
 testClassWith
 	self assert: (AnsiString with: $a) equals: 'a' asAnsiString.
 	self assert: (AnsiString with: Character replacement)
 		equals: (AnsiString with: (Character value: 63))!
+
+testCopyReplaceAllWith
+	| subject actual |
+	super testCopyReplaceAllWith.
+	subject := self assimilateString: 'a£aa£'.
+	actual := subject copyReplaceAll: 'a£' asUtf8String with: 'a€' asUtf8String.
+	self assert: actual equals: 'a€aa€'.
+	actual := subject copyReplaceAll: 'a£' asUtf16String with: 'a€' asUtf16String.
+	self assert: actual equals: 'a€aa€'.
+	actual := subject copyReplaceAll: 'a£' asArray with: 'a€' asArray.
+	self assert: actual equals: 'a€aa€'!
 
 testIndexOfSubCollectionStartingAtGPF
 	| strings search current |
@@ -98,7 +122,9 @@ testMatch
 !AnsiStringTest categoriesFor: #assimilateString:!helpers!private! !
 !AnsiStringTest categoriesFor: #collectionClass!helpers!private! !
 !AnsiStringTest categoriesFor: #testAsPhrase!public!unit tests! !
+!AnsiStringTest categoriesFor: #testBeginsWithIgnoreCase!public!unit tests! !
 !AnsiStringTest categoriesFor: #testClassWith!public! !
+!AnsiStringTest categoriesFor: #testCopyReplaceAllWith!public!unit tests! !
 !AnsiStringTest categoriesFor: #testIndexOfSubCollectionStartingAtGPF!public!unit tests! !
 !AnsiStringTest categoriesFor: #testMatch!public!unit tests! !
 

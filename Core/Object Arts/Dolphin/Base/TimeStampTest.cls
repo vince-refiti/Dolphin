@@ -51,6 +51,22 @@ testCurrentUTC
 	bias := Locale timeZoneInformation currentBias * 60.
 	self assert: (current addSeconds: bias) time hour equals: TimeStamp currentUTC time hour!
 
+testDateTime
+	| today now ts1 ts2 originalMethod testMethod |
+	today := Date today.
+	now := Time now.
+	ts1 := TimeStamp date: today time: now.
+	self assert: ts1 date equals: today.
+	self assert: ts1 time equals: now.
+	originalMethod := TimeStamp class compiledMethodAt: #date:time:.
+	testMethod := originalMethod copy.
+	"Sanity check"
+	self deny: testMethod == originalMethod.
+	testMethod extraIndex: 0.
+	"Invoke the method directly so we don't need to install it."
+	ts2 := testMethod value: TimeStamp withArguments: {today. now}.
+	self assert: ts2 equals: ts1!
+
 testFromMilliseconds
 	| current |
 	current := self currentTimeStamp.
@@ -75,12 +91,14 @@ testFromSYSTEMTIME
 	self assert: ts time hour equals: sysTime wHour.
 	self assert: ts time minute equals: sysTime wMinute.
 	self assert: ts time second truncated equals: sysTime wSecond.
-	self assert: ts time millisecond equals: sysTime wMilliseconds! !
+	self assert: ts time millisecond equals: sysTime wMilliseconds.
+	self assert: sysTime asTimeStamp equals: ts! !
 !TimeStampTest categoriesFor: #currentTimeStamp!helpers!private! !
 !TimeStampTest categoriesFor: #testAddSeconds!public! !
 !TimeStampTest categoriesFor: #testAsMilliseconds!public! !
 !TimeStampTest categoriesFor: #testAsSeconds!public! !
 !TimeStampTest categoriesFor: #testCurrentUTC!public! !
+!TimeStampTest categoriesFor: #testDateTime!public!unit tests! !
 !TimeStampTest categoriesFor: #testFromMilliseconds!public! !
 !TimeStampTest categoriesFor: #testFromSeconds!public! !
 !TimeStampTest categoriesFor: #testFromSYSTEMTIME!public! !

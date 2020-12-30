@@ -15,6 +15,7 @@
 #include "ObjMem.h"
 #include "ObjMemPriv.inl"
 #include "Interprt.h"
+#include "VirtualMemoryStats.h"
 
 #ifdef DOWNLOADABLE
 #include "downloadableresource.h"
@@ -54,28 +55,32 @@ POBJECT ObjectMemory::allocLargeObject(size_t objectSize, OTE*& ote)
 	// allocateOop expects crit section to be used
 	ote = allocateOop(pObj);
 	ote->setSize(objectSize);
-	ote->m_flags.m_space = OTEFlags::NormalSpace;
+	ote->m_flags.m_space = static_cast<space_t>(Spaces::Normal);
 	return pObj;
 }
 
 inline POBJECT ObjectMemory::allocObject(size_t objectSize, OTE*& ote)
 {
 	// Callers are expected to round requests to Oop granularity
-	if (objectSize > MaxSmallObjectSize)
+	if (objectSize <= MaxSmallObjectSize)
+	{
+		// Smallblock heap already has space for object size at start of obj which includes
+		// heap overhead,etc, and is rounded to a paragraph size
+		// Why not alloc. four bytes less, overwrite this size with our object size, and then
+		// move back the object body pointer by four. On delete need to reapply the object
+		// size back into the object? - No wouldn't work because of the way heap accesses
+		// adjoining objects when freeing!
+
+		POBJECT pObj = static_cast<POBJECT>(allocSmallChunk(objectSize));
+		ote = allocateOop(pObj);
+		ote->setSize(objectSize);
+		ASSERT(ote->heapSpace() == Spaces::Pools);
+		return pObj;
+	}
+	else
+	{
 		return allocLargeObject(objectSize, ote);
-
-	// Smallblock heap already has space for object size at start of obj which includes
-	// heap overhead,etc, and is rounded to a paragraph size
-	// Why not alloc. four bytes less, overwrite this size with our object size, and then
-	// move back the object body pointer by four. On delete need to reapply the object
-	// size back into the object? - No wouldn't work because of the way heap accesses
-	// adjoining objects when freeing!
-
-	POBJECT pObj = static_cast<POBJECT>(allocSmallChunk(objectSize));
-	ote = allocateOop(pObj);
-	ote->setSize(objectSize);
-	ASSERT(ote->heapSpace() == OTEFlags::PoolSpace);
-	return pObj;
+	}
 }
 
 
@@ -94,7 +99,12 @@ PointersOTE* __fastcall ObjectMemory::shallowCopy(PointersOTE* ote)
 	PointersOTE* copyPointer;
 	size_t size;
 
-	if (ote->heapSpace() == OTEFlags::VirtualSpace)
+	if (ote->heapSpace() != Spaces::Virtual)
+	{
+		size = ote->pointersSize();
+		copyPointer = newPointerObject(classPointer, size);
+	}
+	else
 	{
 		Interpreter::resizeActiveProcess();
 
@@ -108,21 +118,20 @@ PointersOTE* __fastcall ObjectMemory::shallowCopy(PointersOTE* ote)
 		VirtualOTE* virtualCopy = ObjectMemory::newVirtualObject(classPointer,
 			currentTotalByteSize / sizeof(Oop),
 			maxByteSize / sizeof(Oop));
-		if (!virtualCopy)
+		if (virtualCopy)
+		{
+			pVObj = virtualCopy->m_location;
+			pBase = pVObj->getHeader();
+			ASSERT(pBase->getMaxAllocation() == maxByteSize);
+			ASSERT(pBase->getCurrentAllocation() == currentTotalByteSize);
+			virtualCopy->setSize(ote->getSize());
+
+			copyPointer = reinterpret_cast<PointersOTE*>(virtualCopy);
+		}
+		else
+		{
 			return nullptr;
-
-		pVObj = virtualCopy->m_location;
-		pBase = pVObj->getHeader();
-		ASSERT(pBase->getMaxAllocation() == maxByteSize);
-		ASSERT(pBase->getCurrentAllocation() == currentTotalByteSize);
-		virtualCopy->setSize(ote->getSize());
-
-		copyPointer = reinterpret_cast<PointersOTE*>(virtualCopy);
-	}
-	else
-	{
-		size = ote->pointersSize();
-		copyPointer = newPointerObject(classPointer, size);
+		}
 	}
 
 	// Now copy over all the fields
@@ -330,8 +339,8 @@ PointersOTE* __fastcall ObjectMemory::newUninitializedPointerObject(BehaviorOTE*
 	size_t objectSize = SizeOfPointers(oops);
 	OTE* ote;
 	allocObject(objectSize, ote);
-	ASSERT((objectSize > MaxSizeOfPoolObject && ote->heapSpace() == OTEFlags::NormalSpace)
-			|| ote->heapSpace() == OTEFlags::PoolSpace);
+	ASSERT((objectSize > MaxSizeOfPoolObject && ote->heapSpace() == Spaces::Normal)
+			|| ote->heapSpace() == Spaces::Pools);
 
 	// These are stored in the object itself
 	ASSERT(ote->getSize() == objectSize);
@@ -355,8 +364,8 @@ template <bool MaybeZ, bool Initialized> BytesOTE* ObjectMemory::newByteObject(B
 		ASSERT(!classPointer->m_location->m_instanceSpec.m_nullTerminated);
 
 		VariantByteObject* newBytes = static_cast<VariantByteObject*>(allocObject(elementCount + SizeOfPointers(0), ote));
-		ASSERT((elementCount > MaxSizeOfPoolObject && ote->heapSpace() == OTEFlags::NormalSpace)
-			|| ote->heapSpace() == OTEFlags::PoolSpace);
+		ASSERT((elementCount > MaxSizeOfPoolObject && ote->heapSpace() == Spaces::Normal)
+			|| ote->heapSpace() == Spaces::Pools);
 
 		ASSERT(ote->getSize() == elementCount + SizeOfPointers(0));
 
@@ -398,8 +407,8 @@ template <bool MaybeZ, bool Initialized> BytesOTE* ObjectMemory::newByteObject(B
 		objectSize += NULLTERMSIZE;
 
 		VariantByteObject* newBytes = static_cast<VariantByteObject*>(allocObject(objectSize + SizeOfPointers(0), ote));
-		ASSERT((objectSize > MaxSizeOfPoolObject && ote->heapSpace() == OTEFlags::NormalSpace)
-			|| ote->heapSpace() == OTEFlags::PoolSpace);
+		ASSERT((objectSize > MaxSizeOfPoolObject && ote->heapSpace() == Spaces::Normal)
+			|| ote->heapSpace() == Spaces::Pools);
 
 		ASSERT(ote->getSize() == objectSize + SizeOfPointers(0));
 
@@ -467,11 +476,11 @@ OTE* ObjectMemory::CopyElements(OTE* oteObj, size_t startingAt, size_t count)
 	if (oteObj->isBytes())
 	{
 		BytesOTE* oteBytes = reinterpret_cast<BytesOTE*>(oteObj);
-		size_t elementSize = ObjectMemory::GetBytesElementSize(oteBytes);
+		size_t elementSizeShift = static_cast<size_t>(ObjectMemory::GetBytesElementSize(oteBytes));
 
-		if (count == 0 || ((startingAt + count) * elementSize <= oteBytes->bytesSize()))
+		if (count == 0 || (((startingAt + count) << elementSizeShift) <= oteBytes->bytesSize()))
 		{
-			size_t objectSize = elementSize * count;
+			size_t objectSize = count << elementSizeShift;
 
 			if (oteBytes->m_flags.m_weakOrZ)
 			{
@@ -479,7 +488,7 @@ OTE* ObjectMemory::CopyElements(OTE* oteObj, size_t startingAt, size_t count)
 				auto newBytes = static_cast<VariantByteObject*>(allocObject(objectSize + NULLTERMSIZE, oteSlice));
 				// When copying strings, the slices has the same string class
 				(oteSlice->m_oteClass = oteBytes->m_oteClass)->countUp();
-				memcpy(newBytes->m_fields, oteBytes->m_location->m_fields + (startingAt * elementSize), objectSize);
+				memcpy(newBytes->m_fields, oteBytes->m_location->m_fields + (startingAt << elementSizeShift), objectSize);
 				*reinterpret_cast<NULLTERMTYPE*>(&newBytes->m_fields[objectSize]) = 0;
 				oteSlice->beNullTerminated();
 				return oteSlice;
@@ -490,7 +499,7 @@ OTE* ObjectMemory::CopyElements(OTE* oteObj, size_t startingAt, size_t count)
 				// When copying bytes, the slice is always a ByteArray
 				oteSlice->m_oteClass = Pointers.ClassByteArray;
 				oteSlice->beBytes();
-				memcpy(newBytes->m_fields, oteBytes->m_location->m_fields + (startingAt * elementSize), objectSize);
+				memcpy(newBytes->m_fields, oteBytes->m_location->m_fields + (startingAt << elementSizeShift), objectSize);
 				return oteSlice;
 			}
 		}
@@ -579,8 +588,8 @@ BytesOTE* __fastcall ObjectMemory::shallowCopy(BytesOTE* ote)
 	OTE* copyPointer;
 	// Allocate an uninitialized object ...
 	VariantByteObject* pLocation = static_cast<VariantByteObject*>(allocObject(objectSize, copyPointer));
-	ASSERT((objectSize > MaxSizeOfPoolObject && copyPointer->heapSpace() == OTEFlags::NormalSpace)
-		|| copyPointer->heapSpace() == OTEFlags::PoolSpace);
+	ASSERT((objectSize > MaxSizeOfPoolObject && copyPointer->heapSpace() == Spaces::Normal)
+		|| copyPointer->heapSpace() == Spaces::Pools);
 
 	ASSERT(copyPointer->getSize() == objectSize);
 	// This set does not want to copy over the immutability bit - i.e. even if the original was immutable, the 
@@ -702,6 +711,7 @@ Oop* __stdcall AllocateVirtualSpace(size_t maxBytes, size_t initialBytes)
 		}
 	}
 
+	::RaiseException(STATUS_NO_MEMORY, 0, 0, nullptr);
 	return nullptr;
 }
 
@@ -750,7 +760,7 @@ VirtualOTE* ObjectMemory::newVirtualObject(BehaviorOTE* classPointer, size_t ini
 		ote->setSize(byteSize);
 		ote->m_oteClass = classPointer;
 		classPointer->countUp();
-		ote->m_flags = m_spaceOTEBits[OTEFlags::VirtualSpace];
+		ote->m_flags = m_spaceOTEBits[static_cast<space_t>(Spaces::Virtual)];
 		ASSERT(ote->isPointers());
 
 		return reinterpret_cast<VirtualOTE*>(ote);
@@ -769,44 +779,48 @@ void ObjectMemory::FixedSizePool::morePages()
 	ASSERT(dwPageSize*nPages == dwAllocationGranularity);
 
 	uint8_t* pStart = static_cast<uint8_t*>(::VirtualAlloc(NULL, dwAllocationGranularity, MEM_COMMIT, PAGE_READWRITE));
-	if (!pStart)
-		::RaiseException(STATUS_NO_MEMORY, EXCEPTION_NONCONTINUABLE, 0, NULL);	// Fatal - we must exit Dolphin
-
-	#ifdef _DEBUG
+	if (pStart)
 	{
-		tracelock lock(TRACESTREAM);
-		TRACESTREAM<< L"FixedSizePool: new pages @ " << LPVOID(pStart) << std::endl;
-	}
-	#endif
+#ifdef _DEBUG
+		{
+			tracelock lock(TRACESTREAM);
+			TRACESTREAM << L"FixedSizePool: new pages @ " << LPVOID(pStart) << std::endl;
+		}
+#endif
 
-	// Put the allocation (64k) into the allocation list so we can free it later
-	{
-		m_nAllocations++;
-		m_pAllocations = static_cast<void**>(realloc(m_pAllocations, m_nAllocations*sizeof(void*)));
-		m_pAllocations[m_nAllocations-1] = pStart;
-	}
+		// Put the allocation (64k) into the allocation list so we can free it later
+		{
+			m_nAllocations++;
+			m_pAllocations = static_cast<void**>(realloc(m_pAllocations, m_nAllocations * sizeof(void*)));
+			m_pAllocations[m_nAllocations - 1] = pStart;
+		}
 
-	// We don't know whether the chunks are to contain zeros or nils, so we don't bother to init the space
-	#ifdef _DEBUG
+		// We don't know whether the chunks are to contain zeros or nils, so we don't bother to init the space
+#ifdef _DEBUG
 		memset(pStart, 0xCD, dwAllocationGranularity);
-	#endif
+#endif
 
-	uint8_t* pLast = pStart + dwAllocationGranularity - dwPageSize;
+		uint8_t* pLast = pStart + dwAllocationGranularity - dwPageSize;
 
-	#ifdef _DEBUG
+#ifdef _DEBUG
 		// ASSERT that pLast is correct by causing a GPF if it isn't!
 		memset(reinterpret_cast<uint8_t*>(pLast), 0xCD, dwPageSize);
-	#endif
+#endif
 
-	for (uint8_t* p = pStart; p < pLast; p += dwPageSize)
-		reinterpret_cast<Link*>(p)->next = reinterpret_cast<Link*>(p + dwPageSize);
+		for (uint8_t* p = pStart; p < pLast; p += dwPageSize)
+			reinterpret_cast<Link*>(p)->next = reinterpret_cast<Link*>(p + dwPageSize);
 
-	reinterpret_cast<Link*>(pLast)->next = 0;
-	m_pFreePages = reinterpret_cast<Link*>(pStart);
+		reinterpret_cast<Link*>(pLast)->next = 0;
+		m_pFreePages = reinterpret_cast<Link*>(pStart);
 
-	#ifdef _DEBUG
-	//		m_nPages++;
-	#endif
+#ifdef _DEBUG
+		//		m_nPages++;
+#endif
+	}
+	else
+	{
+		::RaiseException(STATUS_NO_MEMORY, EXCEPTION_NONCONTINUABLE, 0, NULL);	// Fatal - we must exit Dolphin
+	}
 }
 
 inline uint8_t* ObjectMemory::FixedSizePool::allocatePage()
@@ -826,8 +840,8 @@ inline uint8_t* ObjectMemory::FixedSizePool::allocatePage()
 // Allocate another page for a fixed size pool
 void ObjectMemory::FixedSizePool::moreChunks()
 {
-	const size_t nOverhead = 0;//12;
-	const size_t nBlockSize = dwPageSize - nOverhead;
+	constexpr size_t nOverhead = 0;//12;
+	constexpr size_t nBlockSize = dwPageSize - nOverhead;
 	const size_t nChunks = nBlockSize / m_nChunkSize;
 
 	uint8_t* pStart = allocatePage();
@@ -893,7 +907,7 @@ inline ObjectMemory::FixedSizePool::FixedSizePool(size_t nChunkSize) : m_pFreeCh
 inline POBJECT ObjectMemory::reallocChunk(POBJECT pChunk, size_t newChunkSize)
 {
 	#ifdef PRIVATE_HEAP
-		return static_cast<POBJECT>(::HeapReAlloc(m_hHeap, HEAP_NO_SERIALIZE, pChunk, newChunkSize));
+		return static_cast<POBJECT>(::HeapReAlloc(m_hHeap, 0, pChunk, newChunkSize));
 	#else
 		void *oldPointer = pChunk;
 		void *newPointer = realloc(pChunk, newChunkSize);
@@ -965,7 +979,7 @@ inline POBJECT ObjectMemory::reallocChunk(POBJECT pChunk, size_t newChunkSize)
 			if (!ote->isFree())
 			{
 				totalObjects++;
-				if (ote->heapSpace() == OTEFlags::PoolSpace)
+				if (ote->heapSpace() == Spaces::Pools)
 				{
 					size_t size = ote->sizeOf();
 					size_t chunkSize = _ROUND2(size, PoolGranularity);

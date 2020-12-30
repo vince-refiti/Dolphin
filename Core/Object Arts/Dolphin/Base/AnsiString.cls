@@ -16,10 +16,14 @@ In all but limited circumstances `Utf8String`s should be used in preference as t
 !AnsiString methodsFor!
 
 _beginsString: aString
-	^(CRTLibrary default
-		strncmp: aString asAnsiString
-		string2: self
-		count: self size) == 0!
+	| size comperand |
+	comperand := aString asAnsiString.
+	size := self size.
+	^size <= comperand size
+		and: [(CRTLibrary default
+				memcmp: comperand
+				buf2: self
+				count: size) == 0]!
 
 asAnsiString
 	"Answer an ANSI encoded string representation of the receiver."
@@ -49,24 +53,6 @@ asUppercase
 	UserLibrary default charUpperBuffA: copy cchLength: copy size.
 	^copy!
 
-beginsWith: aString ignoreCase: aBoolean
-	"Answer whether the receiver starts with the characters of the argument, aString. The
-	comparison may be case sensitive or insensitive, depending on the <Boolean> argument. Note
-	that unlike #beginsWith:, the comperand must be a <String>."
-
-	^(aBoolean
-		ifTrue: 
-			[CRTLibrary default
-				_strnicmp: self
-				string2: aString
-				count: aString size]
-		ifFalse: 
-			[CRTLibrary default
-				strncmp: self
-				string2: aString
-				count: aString size])
-			== 0!
-
 copyToBuffer: anAddress ofSize: anInteger
 	CRTLibrary default
 		strncpy_s: anAddress
@@ -74,10 +60,21 @@ copyToBuffer: anAddress ofSize: anInteger
 		strSource: self
 		count: CRTConstants._TRUNCATE!
 
+decodeAt: anInteger
+	"Private - Answer the <Character> with code point beginning at the specified position in the receiver."
+
+	<primitive: 63>
+	^self _primitiveError: _failureCode at: anInteger!
+
 decodeNextFrom: aReadStream
 	"Private - Read the next <Character> in the receiver's encoding from the <ReadStream> argument ."
 
 	^aReadStream basicNextAvailable ifNotNil: [:ch | Character ansiValue: ch]!
+
+encodedSizeAt: anInteger
+	"Private - Answer the <integer> number of code units occuppied by the <Character> whose first code unit is at the specified index in the receiver. Always 1 in the case of an ANSI string (multi-byte code pages are not supported)."
+
+	^1!
 
 encodeOn: aWriteStream put: aCharacter
 	"Private - Encode the <Character> argument onto the <WriteStream> argument as a single byte ANSI code unit.
@@ -98,22 +95,12 @@ first: anInteger
 		to: anInteger
 		startingAt: 1!
 
-includes: aCharacter
-	"Answer whether the <Character> argument is one of the elements of the receiver."
-
-	"Implementation Note: Ansi strings can only contain the base character set, all instances of which are unique."
-
-	^(self
-		nextIdentityIndexOf: aCharacter
-		from: 1
-		to: self size) ~~ 0!
-
-nextIndexOf: anElement from: start to: stop
-	"Answer the index of the next occurrence of anElement in the receiver between 
-	startIndex and stopIndex inclusive. If there are no such occurrences, answer 0."
-
-	<primitive: 52>
-	^self nextIdentityIndexOf: anElement from: start to: stop!
+nextIndexOfCharacter: aCharacter from: startInteger to: stopInteger
+	aCharacter encoding ~~ #ansi ifTrue: [^0].
+	^self
+		basicIdentityIndexOf: aCharacter asInteger
+		from: startInteger
+		to: stopInteger!
 
 reverse
 	"Answer a copy of the receiver but with its elements in reverse order.
@@ -134,9 +121,7 @@ skipEncodingMarkerFrom: aGettableStream
 	!
 
 strlen
-	"Answer the length of the receiver (in characters) up to the first null terminator. This may
-	be less than its size if it contains embedded nulls. It can never be greater than the
-	receiver's size."
+	"Answer the length of the receiver (in code units) up to the first null terminator. This may be less than its size if it contains embedded nulls. It can never be greater than the receiver's size."
 
 	^CRTLibrary default strlen: self!
 
@@ -147,7 +132,7 @@ trimNulls
 
 	^self species fromAddress: self yourAddress!
 
-unescapePercents
+urlDecoded
 	"Asuming that receiver is a URI-encoded representation of a UTF-8 encoded original as
 	specified in RFC3986, answer a <Utf8String> which has been unescaped to reveal the original
 	text. If it is detected that the content is not URI-encoded (e.g. it contains %-prefixed
@@ -181,31 +166,29 @@ unescapePercents
 !AnsiString categoriesFor: #asAnsiString!converting!public! !
 !AnsiString categoriesFor: #asLowercase!converting!public! !
 !AnsiString categoriesFor: #asUppercase!converting!public! !
-!AnsiString categoriesFor: #beginsWith:ignoreCase:!comparing!public! !
 !AnsiString categoriesFor: #copyToBuffer:ofSize:!copying!private! !
+!AnsiString categoriesFor: #decodeAt:!encode/decode!private! !
 !AnsiString categoriesFor: #decodeNextFrom:!encode/decode!private! !
+!AnsiString categoriesFor: #encodedSizeAt:!encode/decode!private! !
 !AnsiString categoriesFor: #encodeOn:put:!encode/decode!private! !
 !AnsiString categoriesFor: #first:!copying!public! !
-!AnsiString categoriesFor: #includes:!public!searching! !
-!AnsiString categoriesFor: #nextIndexOf:from:to:!public!searching! !
+!AnsiString categoriesFor: #nextIndexOfCharacter:from:to:!private!searching! !
 !AnsiString categoriesFor: #reverse!copying!public! !
 !AnsiString categoriesFor: #skipEncodingMarkerFrom:!encode/decode!private! !
 !AnsiString categoriesFor: #strlen!accessing!private! !
 !AnsiString categoriesFor: #trimNulls!copying!public! !
-!AnsiString categoriesFor: #unescapePercents!operations!public! !
+!AnsiString categoriesFor: #urlDecoded!operations!public! !
 
 !AnsiString class methodsFor!
+
+characterForCodeUnit: anInteger
+	^Character ansiValue: anInteger!
 
 coerceString: aString
 	"Answer an instance of the receiver containing the same characters as the <String> argument, aString.
 	Any characters of aString that are not representable on the current ANSI code page are replaced with the ANSI replacement character, $?"
 
 	^aString asAnsiString!
-
-elementSize
-	"Answer the size of the elements of the receiver in bytes."
-
-	^1!
 
 fromAddress: anAddress
 	"Answer a new String instantiated from the null terminated string at anAddress.
@@ -254,8 +237,8 @@ with: firstCharacter with: secondCharacter with: thirdCharacter with: fourthChar
 		at: 4 put: fourthCharacter;
 		at: 5 put: fifthCharacter;
 		yourself! !
+!AnsiString class categoriesFor: #characterForCodeUnit:!enquiries!public! !
 !AnsiString class categoriesFor: #coerceString:!instance creation!public! !
-!AnsiString class categoriesFor: #elementSize!constants!public! !
 !AnsiString class categoriesFor: #fromAddress:!instance creation!public! !
 !AnsiString class categoriesFor: #initialize!class initialization!development!public! !
 !AnsiString class categoriesFor: #with:!instance creation!public! !

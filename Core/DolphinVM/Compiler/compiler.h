@@ -24,12 +24,13 @@ Smalltalk compiler
 #undef max
 #include <valarray>
 typedef std::valarray<POTE> POTEARRAY;
+#include <unordered_map>
 
 #ifdef _DEBUG
 	#include "..\disassembler.h"
 #endif
 
-#include "EnumHelpers.h"
+#include "..\EnumHelpers.h"
 ENABLE_BITMASK_OPERATORS(CompilerFlags)
 
 ///////////////////////
@@ -40,8 +41,8 @@ ENABLE_BITMASK_OPERATORS(CompilerFlags)
 #define ARGLIMIT			UINT8_MAX		// maximum number of arguments (VM limit)
 #define	ENVTEMPLIMIT		63				// (2^6)-1. Note that actual limit is 62, since value of 1 indicates that a context with 0 slots is required for a far ^-return 
 
-#define GENERATEDTEMPSTART " "
-#define TEMPSDELIMITER '|'
+#define GENERATEDTEMPSTART u8" "
+#define TEMPSDELIMITER u8'|'
 
 #include "bytecode.h"
 
@@ -66,7 +67,7 @@ END_COM_MAP()
 
 public:
 	// Interpreting the primitiveCompile... type argument
-	enum {CompileToCode, CompileToRTF, CompileToTextMap, CompileToTempsMap };
+	enum class CompileTo { CompileToCode, CompileToRTF, CompileToTextMap, CompileToTempsMap };
 
 public:
 	Compiler();
@@ -95,7 +96,7 @@ public:
 	bool get_Ok() const { return m_ok; }
 
 	__declspec(property(get = get_LiteralCount)) size_t LiteralCount;
-	size_t get_LiteralCount() const { return m_literalFrame.size(); }
+	size_t get_LiteralCount() const { return m_literals.size(); }
 
 	void Warning(int code, Oop extra=0);
 	void Warning(const TEXTRANGE& range, int code, Oop extra=0);
@@ -118,7 +119,7 @@ private:
 	bool get_WantSyntaxCheckOnly() const { return !!(m_flags & CompilerFlags::SyntaxCheckOnly); }
 
 	__declspec(property(get = get_CodeSize)) size_t CodeSize;
-	size_t Compiler::get_CodeSize() const
+	size_t get_CodeSize() const
 	{
 		return m_bytecodes.size();
 	}
@@ -151,7 +152,7 @@ private:
 	POTE InternSymbol(const Str&) const;
 
 	// Lookup
-	uint8_t FindNameAsSpecialMessage(const Str&) const;
+	OpCode FindNameAsSpecialMessage(const Str&) const;
 	bool IsPseudoVariable(const Str&) const;
 	size_t FindNameAsInstanceVariable(const Str&) const;
 	TempVarRef* AddTempRef(const Str& strName, VarRefType refType, const TEXTRANGE& refRange, textpos_t expressionEnd);
@@ -162,20 +163,20 @@ private:
 	void WarnIfRestrictedSelector(textpos_t start);
 
 	// Code generation
+	enum class LiteralType { ReferenceOnly, Normal };
 	size_t AddToFrameUnconditional(Oop object, const TEXTRANGE&);
-	size_t AddToFrame(Oop object, const TEXTRANGE&);
+	size_t AddToFrame(Oop object, const TEXTRANGE&, LiteralType type);
 	size_t AddStringToFrame(POTE string, const TEXTRANGE&);
-	POTE AddSymbolToFrame(LPUTF8, const TEXTRANGE&);
-	POTE AddSymbolToFrame(const char*, const TEXTRANGE&);
+	POTE AddSymbolToFrame(LPUTF8, const TEXTRANGE&, LiteralType refOnly);
 	void InsertByte(ip_t pos, uint8_t value, BYTECODE::Flags flags, LexicalScope* pScope);
 	void RemoveByte(ip_t pos);
 	void RemoveBytes(ip_t start, size_t count);
 	size_t RemoveInstruction(ip_t pos);
 	ip_t GenByte(uint8_t value, BYTECODE::Flags flags, LexicalScope* pScope);
 	ip_t GenData(uint8_t value);
-	ip_t GenInstruction(uint8_t basic, uint8_t offset=0);
-	ip_t GenInstructionExtended(uint8_t basic, uint8_t extension);
-	ip_t GenLongInstruction(uint8_t basic, uint16_t extension);
+	ip_t GenInstruction(OpCode basic, uint8_t offset=0);
+	ip_t GenInstructionExtended(OpCode basic, uint8_t extension);
+	ip_t GenLongInstruction(OpCode basic, uint16_t extension);
 	void UngenInstruction(ip_t pos);
 	void UngenData(ip_t pos, LexicalScope* pScope);
 	
@@ -192,11 +193,11 @@ private:
 	
 	ip_t GenMessage(const Str& pattern, argcount_t argumentCount, textpos_t messageStart);
 
-	ip_t GenJumpInstruction(uint8_t basic);
-	ip_t GenJump(uint8_t basic, ip_t location);
+	ip_t GenJumpInstruction(OpCode basic);
+	ip_t GenJump(OpCode basic, ip_t location);
 	void SetJumpTarget(ip_t jump, ip_t target);
 
-	ip_t GenTempRefInstruction(uint8_t instruction, TempVarRef* pRef);
+	ip_t GenTempRefInstruction(OpCode instruction, TempVarRef* pRef);
 	size_t GenPushCopiedValue(TempVarDecl*);
 
 	void GenPushSelf();
@@ -215,7 +216,7 @@ private:
 	ip_t GenStoreInstVar(uint8_t index);
 	ip_t GenStaticStore(const Str&, const TEXTRANGE&, textpos_t assignedExpressionStop);
 
-	ip_t GenReturn(uint8_t retOp);
+	ip_t GenReturn(OpCode retOp);
 	ip_t GenFarReturn();
 
 
@@ -232,6 +233,7 @@ private:
 	size_t ShortenJumps();
 	void FixupJumps();
 	void FixupJump(ip_t);
+	void insertImmediateAsFirstLiteral(Oop immediate);
 
 	// Recursive Decent Parsing
 	POTE  ParseMethod();
@@ -424,6 +426,8 @@ private:
 	// Parse state
 	bool m_ok;								// Parse still ok? 
 	bool m_instVarsInitialized;
+	bool m_isMutable;
+
 	enum class SendType { Other, Self, Super };
 	CompilerFlags m_flags;							// Compiler flags
 
@@ -441,7 +445,9 @@ private:
 
 	// Dynamic array of literals
 	typedef std::vector<Oop> OOPVECTOR;
-	OOPVECTOR m_literalFrame;					// Literal frame
+	OOPVECTOR m_literalFrame;			// Literal frame
+	typedef std::unordered_map<Oop, size_t> LiteralMap;
+	LiteralMap m_literals;				// All literals
 	size_t m_literalLimit;
 
 	// Fixed size array of instance vars (determined from class)
@@ -507,31 +513,31 @@ inline void Compiler::UngenData(ip_t pos, LexicalScope* pScope)
 
 // Insert an instruction at the code pointer, returning the position at which
 // the instruction was inserted.
-inline ip_t Compiler::GenInstruction(uint8_t basic, uint8_t offset)
+inline ip_t Compiler::GenInstruction(OpCode basic, uint8_t offset)
 {
-	_ASSERTE(offset == 0 || ((int)basic+offset) < FirstDoubleByteInstruction);
+	_ASSERTE(offset == 0 || static_cast<unsigned>(basic+offset) < FirstDoubleByteInstruction);
 	_ASSERTE(m_pCurrentScope != nullptr);
-	return GenByte(basic + offset, BYTECODE::Flags::IsOpCode, m_pCurrentScope);
+	return GenByte(static_cast<uint8_t>(basic + offset), BYTECODE::Flags::IsOpCode, m_pCurrentScope);
 }
 
 inline ip_t Compiler::GenNop()
 {
-	return GenInstruction(Nop);
+	return GenInstruction(OpCode::Nop);
 }
 
 inline ip_t Compiler::GenDup()
 {
-	return GenInstruction(DuplicateStackTop);
+	return GenInstruction(OpCode::DuplicateStackTop);
 }
 
 inline ip_t Compiler::GenPopStack()
 {
-	return GenInstruction(PopStackTop);
+	return GenInstruction(OpCode::PopStackTop);
 }
 
 inline ip_t Compiler::GenStoreTemp(TempVarRef* pTemp)
 {
-	return GenTempRefInstruction(LongStoreOuterTemp, pTemp);
+	return GenTempRefInstruction(OpCode::LongStoreOuterTemp, pTemp);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -583,9 +589,4 @@ inline void Compiler::RemoveByte(ip_t ip)
 inline Str Compiler::GetString(POTE ote) 
 { 
 	return MakeString(m_piVM, ote); 
-}
-
-inline POTE Compiler::AddSymbolToFrame(const char* s, const TEXTRANGE& tokenRange)
-{
-	return AddSymbolToFrame((LPUTF8)s, tokenRange);
 }

@@ -48,14 +48,14 @@ printElementCountExpressionFor: anExternalField on: aWriteStream
 printSetSizeFor: anExternalField on: aWriteStream
 	"Private - Print a statement to set the length field corresponding to this field."
 
-	| setSelector |
-	setSelector := self setLengthSelector.
-	"If the lengthSelector names a field (i.e. it is not custom), generate a statement that sets that length field as well."
-	(anExternalField structClass template includesKey: setSelector)
+	| structClass setter |
+	structClass := anExternalField structClass.
+	setter := self setLengthSelector.
+	((structClass template includesKey: lengthField) or: [structClass canUnderstand: setter])
 		ifTrue: 
 			[aWriteStream
 				nextPutAll: 'self ';
-				display: setSelector;
+				display: setter;
 				space;
 				nextPutAll: anExternalField valueParameterName;
 				space;
@@ -63,11 +63,14 @@ printSetSizeFor: anExternalField on: aWriteStream
 				nextPut: $.;
 				crtab]!
 
-setElementCount: anInteger of: anExternalField in: anExternalStructure
+setElementCount: anArrayedCollection of: anExternalField in: anExternalStructure
 	"Private - Set the length field corresponding to this array field, if any."
 
-	(anExternalStructure template lookup: self setLengthSelector)
-		ifNotNil: [:sizeField | sizeField writeInto: anExternalStructure value: anInteger]!
+	(anExternalStructure template lookup: lengthField)
+		ifNotNil: 
+			[:sizeField |
+			sizeField isWriteable
+				ifTrue: [sizeField writeInto: anExternalStructure value: anArrayedCollection size]]!
 
 setLengthSelector
 	^(lengthField copyWith: $:) asSymbol! !
@@ -76,7 +79,7 @@ setLengthSelector
 !ConformantArrayFieldLength categoriesFor: #printElementCountExpressionFor:on:!automatic generation!private! !
 !ConformantArrayFieldLength categoriesFor: #printSetSizeFor:on:!automatic generation!development!private! !
 !ConformantArrayFieldLength categoriesFor: #setElementCount:of:in:!indirect accessing!private! !
-!ConformantArrayFieldLength categoriesFor: #setLengthSelector!accessing!private! !
+!ConformantArrayFieldLength categoriesFor: #setLengthSelector!private! !
 
 !ConformantArrayFieldLength class methodsFor!
 

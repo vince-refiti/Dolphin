@@ -14,38 +14,114 @@ initializePresenter
 	super initializePresenter.
 	presenter view isMultiSelect: true!
 
+marqueeSelectionEventsToItem: anInteger
+	| downEvent targetPos mouseEvents x |
+	downEvent := self mouseDownEventOnItem: 0 buttons: {#left}.
+	targetPos := (presenter itemRect: anInteger) origin + 5.
+	mouseEvents := Array writeStream.
+	mouseEvents nextPut: downEvent.
+	"It seems the minimum number of WM_MOUSEMOVEs we can get away with is two; one a small distance away from the start point, and another at the target position.
+	Note that for mouse moves Windows updates the posted event to convert the co-ords to client co-ords, so we must supply them as screen co-ords)"
+	mouseEvents nextPut: (MouseEvent
+						window: presenter
+						message: WM_MOUSEMOVE
+						wParam: downEvent wParam
+						lParam: (presenter mapPointToScreen: downEvent position - 5) asDword).
+	mouseEvents nextPut: (MouseEvent
+						window: presenter
+						message: WM_MOUSEMOVE
+						wParam: downEvent wParam
+						lParam: (presenter mapPointToScreen: targetPos) asDword).
+	mouseEvents nextPut: ((self mouseUpForMouseDown: downEvent)
+				lParam: targetPos asDword;
+				yourself).
+	^mouseEvents contents!
+
 sortSelections
 	^#(49 50)!
 
-testNewSelectionsClickOutsideListWithModifiers
-	| event |
-	self setUpForSelectionTesting.
-	presenter selectionsByIndex: #(1).
-	OrderedCollection new
-		add: #(#control);
-		add: #(#shift);
-		add: #(#control #shift);
-		do: 
-				[:modifiers |
-				event := self mouseDownEventOnItem: 0 buttons: (modifiers copyWith: #left).
-				self assert: (presenter newSelectionsFromEvent: event) equals: #(1)]!
+testEventsFromMarqueeSelectionChange
+	"Test that the expected sequence of selection events are raised for left-click selection when the selectionChanging: event is rejected but without a prompt so the control still receives the mouse up."
 
-testNewSelectionsCtrlClickOnSelectedItem
-	| event |
-	self setUpForSelectionTesting.
-	presenter selectionsByIndex: #(1 3).
-	event := self mouseDownEventOnItem: 1 buttons: #(#left #control).
-	self assert: (presenter newSelectionsFromEvent: event) equals: #(3).
-	presenter selectionsByIndex: #(1).
-	self assert: (presenter newSelectionsFromEvent: event) equals: #()!
+	| decision changing mouseEvents changed |
+	self setUpForSelectionEventTesting.
+	decision := true.
+	selectionChanging := 
+			[:selChanging |
+			events addLast: selChanging.
+			selChanging value: decision].
+	events := OrderedCollection new.
+	clicks := OrderedCollection new.
+	mouseEvents := self marqueeSelectionEventsToItem: 9.
+	self sendMouseEvents: mouseEvents.
+	"We allowed the selection change to proceed, so expect 2 events (as the initial selection was empty)"
+	self assert: presenter selectionsByIndex equals: (9 to: 10).
+	self assert: events size equals: 2.
+	changing := events first.
+	self assert: changing isKindOf: SelectionChangingEvent.
+	self assert: changing oldSelections equals: #().
+	self assert: changing newSelections equals: #(9 10).
+	changed := events second.
+	self assert: changed isKindOf: SelectionChangedEvent.
+	self assert: clicks size equals: 1.
 
-testNewSelectionsCtrlClickOnUnselectedItem
-	| event |
-	self setUpForSelectionTesting.
-	event := self mouseDownEventOnItem: 1 buttons: #(#left #control).
-	self assert: (presenter newSelectionsFromEvent: event) equals: #(1).
-	presenter selectionsByIndex: #(3).
-	self assert: (presenter newSelectionsFromEvent: event) equals: #(1 3)!
+	"Now test marquee selection when there is an initial selection - in this case we get two selection changing events, one for the initial mouse down in no-mans land to clear all selections, and another for the eventual marquee selection."
+	presenter view selectionByIndex: 8.
+	events := OrderedCollection new.
+	clicks := OrderedCollection new.
+	self sendMouseEvents: mouseEvents.
+	"We allowed the selection change to proceed, so expect 3 events (as the initial selection was not empty)"
+	self assert: presenter selectionsByIndex equals: (9 to: 10).
+	self assert: events size equals: 3.
+	changing := events first.
+	self assert: changing isKindOf: SelectionChangingEvent.
+	self assert: changing oldSelections equals: #(8).
+	self assert: changing newSelections equals: #().
+	changing := events second.
+	self assert: changing isKindOf: SelectionChangingEvent.
+	self assert: changing oldSelections equals: #(8).
+	self assert: changing newSelections equals: #(9 10).
+	changed := events third.
+	self assert: changed isKindOf: SelectionChangedEvent.
+	self assert: clicks size equals: 1.
+
+	"Now try refusing the change"
+	presenter view selectionByIndex: 8.
+	decision := false.
+	events := OrderedCollection new.
+	clicks := OrderedCollection new.
+	self sendMouseEvents: mouseEvents.
+	"We allowed the selection change to proceed, so expect 3 events (as the initial selection was not empty)"
+	self assert: presenter selectionsByIndex equals: #(8).
+	self assert: events size equals: 1.
+	changing := events first.
+	self assert: changing isKindOf: SelectionChangingEvent.
+	self assert: changing oldSelections equals: #(8).
+	self assert: changing newSelections equals: #().
+	self assert: clicks size equals: 0.
+
+	"Accept the 1st change, but not the 2nd"
+	decision := true.
+	selectionChanging := 
+			[:selChanging |
+			events addLast: selChanging.
+			selChanging value: decision.
+			decision := decision not].
+	events := OrderedCollection new.
+	clicks := OrderedCollection new.
+	self sendMouseEvents: mouseEvents.
+	"We prevented the selection change on 2nd asking, so expect 2 events"
+	self assert: presenter selectionsByIndex equals: #(8).
+	changing := events first.
+	self assert: changing isKindOf: SelectionChangingEvent.
+	self assert: changing oldSelections equals: #(8).
+	self assert: changing newSelections equals: #().
+	changing := events second.
+	self assert: changing isKindOf: SelectionChangingEvent.
+	self assert: changing oldSelections equals: #(8).
+	self assert: changing newSelections equals: #(9 10).
+
+!
 
 testNewSelectionsCtrlShiftClickAdditive
 	| event |
@@ -54,11 +130,11 @@ testNewSelectionsCtrlShiftClickAdditive
 		selectionsByIndex: #(1 3);
 		anchorIndex: 3.
 	event := self mouseDownEventOnItem: 7 buttons: #(#left #control #shift).
-	self assert: (presenter newSelectionsFromEvent: event) equals: #(1 3 4 5 6 7).
+	self verifySelectionsFromMouseDown: event equals: #(1 3 4 5 6 7).
 	presenter selectionsByIndex: #(1 3 5 7).
 	"Programatically changing selection does not change the anchor."
 	self assert: presenter anchorIndex equals: 3.
-	self assert: (presenter newSelectionsFromEvent: event) equals: #(1 3 4 5 6 7)!
+	self verifySelectionsFromMouseDown: event equals: #(1 3 4 5 6 7)!
 
 testNewSelectionsCtrlShiftClickSubtractive
 	| event |
@@ -70,128 +146,27 @@ testNewSelectionsCtrlShiftClickSubtractive
 	"In Windows Explorer and other applications that use ListView or a similar control,
 	(2) would not be selected at this point. Why is it in Dolphin?
 	(See comment at the end of #newSelectionsFromEvent:.)"
-	self assert: (presenter newSelectionsFromEvent: event) equals: #(1 2 7).
+	self verifySelectionsFromMouseDown: event equals: #(1 2 7).
 	presenter selectionsByIndex: #(1 3 5 7).
-	self assert: (presenter newSelectionsFromEvent: event) equals: #(1 2 7)!
-
-testNewSelectionsInitialShiftClick
-	| event |
-	self setUpForSelectionTesting.
-	event := self mouseDownEventOnItem: 1 buttons: #(#left #shift).
-	self assert: (presenter newSelectionsFromEvent: event) equals: #(1).
-	event := self mouseDownEventOnItem: 3 buttons: #(#left #shift).
-	self assert: (presenter newSelectionsFromEvent: event) equals: #(3)!
-
-testNewSelectionsNonLeftClicksWithModifiers
-	self setUpForSelectionTesting.
-	presenter selectionsByIndex: #(1 3 5).
-	"Right or middle clicks with any modifiers will never modify the selection. Just cover a few example cases."
-	OrderedCollection new
-		add: 1 -> #(#right #control);
-		add: 2 -> #(#middle #shift);
-		add: 3 -> #(#right #control #shift);
-		add: 0 -> #(#middle #control);
-		do: 
-				[:assoc |
-				| event |
-				event := self mouseDownEventOnItem: assoc key buttons: assoc value.
-				self assert: (presenter newSelectionsFromEvent: event) equals: #(1 3 5)]!
-
-testNewSelectionsRightClickOutsideSelection
-	| event |
-	self setUpForSelectionTesting.
-	presenter selectionsByIndex: #(1 3 5).
-	event := self mouseDownEventOnItem: 2 buttons: #(#right).
-	self assert: (presenter newSelectionsFromEvent: event) equals: #(2)!
-
-testNewSelectionsRightClickWithinSelection
-	| event |
-	self setUpForSelectionTesting.
-	presenter selectionsByIndex: #(1 3 5).
-	event := self mouseDownEventOnItem: 3 buttons: #(#right).
-	self assert: (presenter newSelectionsFromEvent: event) equals: #(1 3 5)!
+	self verifySelectionsFromMouseDown: event equals: #(1 2 7)!
 
 testNewSelectionsShiftClickWithSelectionMark
 	| event |
 	self setUpForSelectionTesting.
 	presenter anchorIndex: 3.
 	event := self mouseDownEventOnItem: 5 buttons: #(#left #shift).
-	"It does not really matter what is currently selected, only what is marked and what is clicked"
-	OrderedCollection new
-		add: #();
-		add: #(3);
-		add: #(1 2 3);
-		add: #(3 4 5 6);
-		do: 
-				[:oldSelections |
-				presenter selectionsByIndex: oldSelections.
-				self assert: (presenter newSelectionsFromEvent: event) equals: #(3 4 5)].
+	"In a ListView it does not really matter what is currently selected, only what is marked and what is clicked. The anchor is not expected to be part of the existing selection, and does not move on programmatic selection either."
+	#(#() #(3) #(1 2 3) #(3 4 5 6)) do: 
+			[:oldSelections |
+			presenter selectionsByIndex: oldSelections.
+			self verifySelectionsFromMouseDown: event equals: #(3 4 5)].
 	event := self mouseDownEventOnItem: 3 buttons: #(#left #shift).
-	self assert: (presenter newSelectionsFromEvent: event) equals: #(3)!
-
-testSelectionsByIndex
-	| objects sel |
-	objects := self objectsToTest.
-	presenter view isMultiSelect: true.
-	presenter model addAll: objects.
-	"Select a single object"
-	sel := Array with: objects size.
-	self
-		should: [presenter selectionsByIndex: sel]
-		trigger: #selectionChanged
-		against: presenter.
-	self assert: presenter selectionsByIndex equals: sel.
-	"Selecting same element should be a no-op"
-	self
-		shouldnt: [presenter selectionsByIndex: sel]
-		trigger: #selectionChanged
-		against: presenter.
-	self assert: presenter selectionsByIndex equals: sel.
-	"Selecting a pair including the existing selection"
-	sel := Array with: 1 with: objects size.
-	self
-		should: [presenter selectionsByIndex: sel]
-		trigger: #selectionChanged
-		against: presenter.
-	self assert: presenter selectionsByIndex equals: sel.
-	"Selecting same pair should be a no-op"
-	self
-		shouldnt: [presenter selectionsByIndex: sel]
-		trigger: #selectionChanged
-		against: presenter.
-	self assert: presenter selectionsByIndex equals: sel.
-	"Selecting single item from existing selection should remove other selections"
-	sel := #(1).
-	self
-		should: [presenter selectionsByIndex: sel]
-		trigger: #selectionChanged
-		against: presenter.
-	self assert: presenter selectionsByIndex equals: sel.
-	"Selecting a different pair not including the existing single selection"
-	sel := Array with: 2 with: objects size - 1.
-	self
-		should: [presenter selectionsByIndex: sel]
-		trigger: #selectionChanged
-		against: presenter.
-	self assert: presenter selectionsByIndex equals: sel.
-	"#selectionByIndex: should also clear other selections"
-	sel := sel copyFrom: 2.
-	self
-		should: [presenter selectionByIndex: sel first]
-		trigger: #selectionChanged
-		against: presenter.
-	self assert: presenter selectionsByIndex equals: sel! !
+	self verifySelectionsFromMouseDown: event equals: #(3)! !
 !MultiSelectListViewTest categoriesFor: #initializePresenter!public!Running! !
+!MultiSelectListViewTest categoriesFor: #marqueeSelectionEventsToItem:!helpers!private! !
 !MultiSelectListViewTest categoriesFor: #sortSelections!private!unit tests! !
-!MultiSelectListViewTest categoriesFor: #testNewSelectionsClickOutsideListWithModifiers!public!unit tests! !
-!MultiSelectListViewTest categoriesFor: #testNewSelectionsCtrlClickOnSelectedItem!public!unit tests! !
-!MultiSelectListViewTest categoriesFor: #testNewSelectionsCtrlClickOnUnselectedItem!public!unit tests! !
+!MultiSelectListViewTest categoriesFor: #testEventsFromMarqueeSelectionChange!public!unit tests! !
 !MultiSelectListViewTest categoriesFor: #testNewSelectionsCtrlShiftClickAdditive!public!unit tests! !
 !MultiSelectListViewTest categoriesFor: #testNewSelectionsCtrlShiftClickSubtractive!public!unit tests! !
-!MultiSelectListViewTest categoriesFor: #testNewSelectionsInitialShiftClick!public!unit tests! !
-!MultiSelectListViewTest categoriesFor: #testNewSelectionsNonLeftClicksWithModifiers!public!unit tests! !
-!MultiSelectListViewTest categoriesFor: #testNewSelectionsRightClickOutsideSelection!public!unit tests! !
-!MultiSelectListViewTest categoriesFor: #testNewSelectionsRightClickWithinSelection!public!unit tests! !
 !MultiSelectListViewTest categoriesFor: #testNewSelectionsShiftClickWithSelectionMark!public!unit tests! !
-!MultiSelectListViewTest categoriesFor: #testSelectionsByIndex!public!unit tests! !
 

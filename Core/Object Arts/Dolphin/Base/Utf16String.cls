@@ -27,10 +27,14 @@ To better understand the full implications of the compromises made in introducin
 !Utf16String methodsFor!
 
 _beginsString: aString
-	^(CRTLibrary default
-		wcsncmp: aString asUtf16String
-		string2: self
-		count: self size) == 0!
+	| size comperand |
+	comperand := aString asUtf16String.
+	size := self size.
+	^size <= comperand size
+		and: [(CRTLibrary default
+				memcmp: comperand
+				buf2: self
+				count: size * 2) == 0]!
 
 asByteString: aClass
 	"Private - Answer a byte-string encoded <String> of the specified class containing the same characters as the receiver."
@@ -80,13 +84,23 @@ at: anInteger
 	<primitive: 63>
 	^Character utf16Value: (self basicAt: anInteger) ifInvalid: [Character.Utf8Default]!
 
+before: aCharacter ifAbsent: aNiladicValuable
+	"Answer the <Character> representing the code point before the <Character> argument, or if not present the result of evaluating the <niladicValuable> argument."
+
+	| index ch |
+	index := self indexOf: aCharacter.
+	index == 0 ifTrue: [^aNiladicValuable value].
+	index == 1 ifTrue: [^self errorFirstObject: aCharacter].
+	ch := self at: index - 1.
+	^ch isUtf16Trail ifTrue: [self decodeAt: index - 2] ifFalse: [ch]!
+
 bom
 	^Bom!
 
 byteSize
 	"Private - Answer the size in bytes of this object. For historical reasons this includes the null terminator (which is actually part of the memory allocated for the String by the Dolphin VM)."
 
-	^(self basicSize + 1) << 1!
+	^self basicSize + 1 bitShift: 1!
 
 copyToBuffer: anAddress ofSize: anInteger
 	CRTLibrary default
@@ -95,6 +109,42 @@ copyToBuffer: anAddress ofSize: anInteger
 		strSource: self
 		count: CRTConstants._TRUNCATE!
 
+countElements
+	| length |
+	length := 0.
+	"Count the code-units that are not trailing surrogates"
+	1 to: self size
+		do: 
+			[:i |
+			((self basicAt: i) bitAnd: Character.Utf16SurrogateMask) == Character.Utf16TrailMask
+				ifFalse: [length := length + 1]].
+	^length!
+
+decodeAt: anInteger
+	"Private - Answer the encoded object beginning at the specified position in the receiver."
+
+	| leading surrogateBits |
+	leading := self basicAt: anInteger.
+	surrogateBits := leading bitAnd: Character.Utf16SurrogateMask.
+	^surrogateBits == Character.Utf16LeadMask
+		ifTrue: 
+			[| trailing |
+			"Lead surrogate encountered"
+			(anInteger < self size and: 
+					[trailing := self basicAt: anInteger + 1.
+					(trailing bitAnd: Character.Utf16SurrogateMask) == Character.Utf16TrailMask])
+				ifTrue: 
+					["Valid surrogate pair"
+					Character codePoint: (leading bitShift: 10) + trailing - SurrogateOffset
+						ifInvalid: [Character.Utf8Default]]
+				ifFalse: 
+					["No trailing surrogate, answer the replacement character"
+					Character.Utf8Default]]
+		ifFalse: 
+			[surrogateBits == Character.Utf16TrailMask
+				ifTrue: [self errorIntraCharacterIndex: anInteger]
+				ifFalse: [Character utf16Value: leading ifInvalid: [Character.Utf8Default]]]!
+
 decodeNextFrom: aReadStream
 	"Private - Read the next <Character> in the receiver's encoding from the <ReadStream> argument, which
 	is assumed to be over a Utf16String (or a stream over a double-byte object) ."
@@ -102,7 +152,7 @@ decodeNextFrom: aReadStream
 	^aReadStream basicNextAvailable
 		ifNotNil: 
 			[:c |
-			(c bitAnd: 16rFFFFC00) == 16rD800
+			(c bitAnd: Character.Utf16SurrogateMask) == Character.Utf16LeadMask
 				ifTrue: 
 					["Lead surrogate encountered"
 					aReadStream basicNextAvailable
@@ -111,10 +161,10 @@ decodeNextFrom: aReadStream
 							Character.Utf8Default]
 						ifNotNil: 
 							[:c2 |
-							(c2 bitAnd: 16rFFFFFC00) == 16rDC00
+							(c2 bitAnd: Character.Utf16SurrogateMask) == Character.Utf16TrailMask
 								ifTrue: 
 									["Valid surrogate pair"
-									Character codePoint: (c << 10) + c2 - SurrogateOffset ifInvalid: [Character.Utf8Default]]
+									Character codePoint: (c bitShift: 10) + c2 - SurrogateOffset ifInvalid: [Character.Utf8Default]]
 								ifFalse: 
 									["No trailing surrogate, answer the replacement character"
 									aReadStream pop.
@@ -142,13 +192,25 @@ encodedAt: anInteger put: aCharacter
 				ifTrue: 
 					[codePoint := codePoint - 16r10000.
 					self
-						basicAt: anInteger put: (codePoint bitShift: -10) + 16rD800;
-						basicAt: anInteger + 1 put: (codePoint bitAnd: 16r3FF) + 16rDC00.
+						basicAt: anInteger put: (codePoint bitShift: -10) + Character.Utf16LeadMask ;
+						basicAt: anInteger + 1 put: (codePoint bitAnd: 16r3FF) + Character.Utf16TrailMask.
 					anInteger + 1]
 				ifFalse: [self class errorInvalidCodePoint: codePoint]]!
 
+encodedSizeAt: anInteger
+	"Private - Answer the <integer> number of code units occuppied by the <Character> whose first code unit is at the specified index in the receiver. Throw an error if the code unit at anInteger is not either an ASCII code point or a UTF-8 lead surrogate"
+
+	| surrogateBits |
+	surrogateBits := (self basicAt: anInteger) bitAnd: Character.Utf16SurrogateMask.
+	^surrogateBits == Character.Utf16LeadMask
+		ifTrue: [2]
+		ifFalse: 
+			[surrogateBits == Character.Utf16TrailMask
+				ifTrue: [self errorIntraCharacterIndex: anInteger]
+				ifFalse: [1]]!
+
 encodedSizeOf: aCharacter
-	"Private - Answer the number of basic slots occupied by the argument when encoded in the receiver."
+	"Private - Answer the number of basic slots occupied by the argument when encoded in the UTF-16 encoding."
 
 	^aCharacter codePoint <= 16rFFFF ifTrue: [1] ifFalse: [2]!
 
@@ -168,38 +230,17 @@ encodeOn: aPuttableStream put: aCharacter
 					[#todo.	"http://www.unicode.org/faq/utf_bom.html suggests there might be a simpler (more efficient) calculation, but it looks incorrect to me"
 					codePoint := codePoint - 16r10000.
 					aPuttableStream
-						basicNextPut: (codePoint bitShift: -10) + 16rD800;
-						basicNextPut: (codePoint bitAnd: 16r3FF) + 16rDC00]
+						basicNextPut: (codePoint bitShift: -10) + Character.Utf16LeadMask;
+						basicNextPut: (codePoint bitAnd: 16r3FF) + Character.Utf16TrailMask]
 				ifFalse: [self class errorInvalidCodePoint: codePoint]]!
 
-findString: aString startingAt: anInteger 
+findString: aString startingAt: anInteger
 	"Answer the index of the <String> argument within the receiver, starting at the <integer>
 	argument. If the receiver does not contain aString, answer 0."
 
-	| size subSize firstElement |
-	subSize := aString size.
-	subSize == 0 ifTrue: [^0].
-	firstElement := aString at: 1.
-	size := self size.
-	subSize == 1 
-		ifTrue: 
-			[^self 
-				nextIndexOf: firstElement
-				from: anInteger
-				to: size].
-	anInteger to: size - subSize + 1
-		do: 
-			[:i | 
-			(self at: i) = firstElement 
-				ifTrue: 
-					[| j |
-					j := 2.
-					[(self at: i + j - 1) = (aString at: j)] whileTrue: 
-							[j = subSize ifTrue: [^i].
-							j := j + 1]]].
-	^0!
+	^self basicIndexOfSubCollection: aString asUtf16String startingAt: anInteger!
 
-indexOfSubCollection: targetSequence startingAt: start 
+indexOfSubCollection: targetSequence startingAt: start
 	"Answer the <integer> index of the next occurrence within the 
 	receiver of the <sequencedReadableCollection> targetSequence,
 	starting at the <integer> index start. If there are no such occurrences
@@ -207,64 +248,34 @@ indexOfSubCollection: targetSequence startingAt: start
 
 	^self findString: targetSequence startingAt: start!
 
-length
-	"Answer the number of Unicode code-points in the receiver."
-
-	| length |
-	length := 0.
-	"Count the code-units that are not trailing surrogates"
-	1 to: self size
-		do: 
-			[:i |
-			((self basicAt: i) bitAnd: Character.Utf16SurrogateMask) == 16rDC00 ifFalse: [length := length + 1]].
-	^length!
+isLeadCodeUnit: anInteger
+	^(anInteger bitAnd: Character.Utf16SurrogateMask) ~~ Character.Utf16TrailMask!
 
 maxEncoding
 	^2!
 
-nextIdentityIndexOf: anElement from: start to: stop
-	"Answer the index of the next occurrence of anElement in the receiver's indexable
-	variables between startIndex and stopIndex inclusive. If there are no such occurrences, answer 0."
-
-	#todo.	"Remove when primitive is fixed"
-	start to: stop do: [:i | (self at: i) = anElement ifTrue: [^i]].
-	^0!
-
-nextIndexOf: anElement from: start to: stop
-	"Answer the index of the next occurrence of anElement in the receiver between 
-	startIndex and stopIndex inclusive. If there are no such occurrences, answer 0."
-
+nextIndexOfCharacter: aCharacter from: startInteger to: stopInteger
 	| codePoint |
-	anElement class ~~ Character
-		ifTrue: 
-			["Strings can only contain Characters"
-			^0].
-	codePoint := anElement codePoint.
-	codePoint < 16r80
-		ifTrue: 
-			[^self
-				nextIdentityIndexOf: anElement
-				from: start
-				to: stop].
+	codePoint := aCharacter codePoint.
 	codePoint <= 16rFFFF
 		ifTrue: 
-			[anElement isUtf8Surrogate
-				ifFalse: [start to: stop do: [:i | (self at: i) = anElement ifTrue: [^i]]].
+			[aCharacter isUtf8Surrogate
+				ifFalse: [startInteger to: stopInteger do: [:i | (self at: i) = aCharacter ifTrue: [^i]]].
 			^0]
 		ifFalse: 
 			[| lead trail current |
 			codePoint := codePoint - 16r10000.
-			lead := Character utf16Value: (codePoint bitShift: -10) + 16rD800.
-			trail := Character utf16Value: (codePoint bitAnd: 16r3FF) + 16rDC00.
+			lead := Character utf16Value: (codePoint bitShift: -10) + Character.Utf16LeadMask.
+			trail := Character utf16Value: (codePoint bitAnd: 16r3FF) + Character.Utf16TrailMask.
 			current := self
 						nextIndexOf: lead
-						from: start
-						to: stop - 1.
-			[current ~~ 0 and: [current < stop and: [(self at: current + 1) ~= trail]]] whileTrue: 
+						from: startInteger
+						to: stopInteger - 1.
+			[current ~~ 0 and: [current < stopInteger and: [(self at: current + 1) ~= trail]]] whileTrue: 
 					[current := self
 								nextIndexOf: lead
 								from: current + 1
-								to: stop - 1].
+								to: stopInteger - 1].
 			^current]!
 
 replaceFrom: startInteger to: stopInteger with: aReadableString startingAt: startAtInteger
@@ -286,14 +297,14 @@ replaceFrom: startInteger to: stopInteger with: aReadableString startingAt: star
 resize: anInteger
 	^super resize: anInteger * 2!
 
-reverse
+reversedFrom: startInteger to: stopInteger
 	"Answer a copy of the receiver but with its elements in reverse order."
 
 	| reversed i j size |
-	j := size := self size.
+	j := size := stopInteger - startInteger + 1.
 	reversed := self species new: size.
-	i := 1.
-	[i <= size] whileTrue: 
+	i := startInteger.
+	[i <= stopInteger] whileTrue: 
 			[| ch |
 			ch := self at: i.
 			ch isSurrogate
@@ -327,9 +338,7 @@ strcspn: aString start: anInteger
 		strCharSet: aString asUtf16String!
 
 strlen
-	"Answer the length of the receiver (in characters) up to the first null terminator. This may
-	be less than its size if it contains embedded nulls. It can never be greater than the
-	receiver's size."
+	"Answer the length of the receiver (in code units) up to the first null terminator. This may be less than its size if it contains embedded nulls. It can never be greater than the receiver's size."
 
 	^KernelLibrary default lstrlenW: self!
 
@@ -368,23 +377,26 @@ wordAtOffset: anInteger put: anObject
 !Utf16String categoriesFor: #asUppercase!converting!public! !
 !Utf16String categoriesFor: #asUtf16String!converting!public! !
 !Utf16String categoriesFor: #at:!accessing!public! !
+!Utf16String categoriesFor: #before:ifAbsent:!public!searching! !
 !Utf16String categoriesFor: #bom!constants!encode/decode!private! !
 !Utf16String categoriesFor: #byteSize!accessing!private! !
 !Utf16String categoriesFor: #copyToBuffer:ofSize:!copying!private! !
+!Utf16String categoriesFor: #countElements!accessing!public! !
+!Utf16String categoriesFor: #decodeAt:!encode/decode!private! !
 !Utf16String categoriesFor: #decodeNextFrom:!encode/decode!private! !
 !Utf16String categoriesFor: #displayOn:!printing!public! !
 !Utf16String categoriesFor: #encodedAt:put:!accessing!encode/decode!private! !
+!Utf16String categoriesFor: #encodedSizeAt:!encode/decode!private! !
 !Utf16String categoriesFor: #encodedSizeOf:!encode/decode!private! !
 !Utf16String categoriesFor: #encodeOn:put:!encode/decode!private! !
 !Utf16String categoriesFor: #findString:startingAt:!public!searching! !
 !Utf16String categoriesFor: #indexOfSubCollection:startingAt:!public!searching! !
-!Utf16String categoriesFor: #length!accessing!public! !
+!Utf16String categoriesFor: #isLeadCodeUnit:!encode/decode!private!testing! !
 !Utf16String categoriesFor: #maxEncoding!constants!private! !
-!Utf16String categoriesFor: #nextIdentityIndexOf:from:to:!public!searching! !
-!Utf16String categoriesFor: #nextIndexOf:from:to:!public!searching! !
+!Utf16String categoriesFor: #nextIndexOfCharacter:from:to:!private!searching! !
 !Utf16String categoriesFor: #replaceFrom:to:with:startingAt:!public!replacing! !
 !Utf16String categoriesFor: #resize:!mutating!public! !
-!Utf16String categoriesFor: #reverse!copying!public! !
+!Utf16String categoriesFor: #reversedFrom:to:!copying!public! !
 !Utf16String categoriesFor: #skipEncodingMarkerFrom:!encode/decode!private! !
 !Utf16String categoriesFor: #stbSaveOn:!binary filing!public! !
 !Utf16String categoriesFor: #strcspn:start:!private!searching! !
@@ -393,6 +405,9 @@ wordAtOffset: anInteger put: anObject
 !Utf16String categoriesFor: #wordAtOffset:put:!accessing!primitives!private! !
 
 !Utf16String class methodsFor!
+
+characterForCodeUnit: anInteger
+	^Character utf16Value: anInteger!
 
 codePage
 	"Answer the Windows code page constant for the receiver's encoding."
@@ -477,10 +492,10 @@ initialize
 				yourself.
 	VMLibrary default registryAt: #Utf16String put: self.
 	self extraInstanceSpec: EncodingUtf16.
-	self addClassConstant: 'LeadOffset' value: 16rD800 - (16r10000 >> 10).
-	self addClassConstant: 'SurrogateOffset' value: (16rD800 << 10) + 16rDC00 - 16r10000.
-	self addClassConstant: 'Bom' value: #[255 254]
-!
+	self addClassConstant: 'LeadOffset' value: Character.Utf16LeadMask - (16r10000 >> 10).
+	self addClassConstant: 'SurrogateOffset'
+		value: (Character.Utf16LeadMask bitShift: 10) + Character.Utf16TrailMask - 16r10000.
+	self addClassConstant: 'Bom' value: #[255 254]!
 
 with: aCharacter
 	"Answer a new instance of the receiver containing the single <Character> element,
@@ -496,6 +511,7 @@ with: aCharacter
 			[(self new: 2)
 				encodedAt: 1 put: aCharacter;
 				yourself]! !
+!Utf16String class categoriesFor: #characterForCodeUnit:!enquiries!public! !
 !Utf16String class categoriesFor: #codePage!constants!public! !
 !Utf16String class categoriesFor: #coerceString:!instance creation!public! !
 !Utf16String class categoriesFor: #elementSize!constants!public! !

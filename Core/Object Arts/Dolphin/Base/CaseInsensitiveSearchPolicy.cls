@@ -17,7 +17,7 @@ compare: operand1 with: operand2
 	"Answer whether the <Object>, operand1, is considered equivalent to the <Object> argument,
 	operand2, by this search policy."
 
-	^operand1 asString sameAs: operand2 asString!
+	^operand1 asString <=> operand2 asString == 0!
 
 hash: operand
 	"Answer a suitable hash value for the <Object>, operand, under this search policy."
@@ -36,8 +36,14 @@ keyAtValue: value in: collection ifAbsent: operation
 	comperand := value asString.
 	collection keysAndValuesDo: [:k :v | (self compare: v asString with: comperand) ifTrue: [^k]].
 	^operation value
-! !
+!
+
+name
+	"Answer the name of the `SearchPolicy`. This is nil apart from the named singletons."
+
+	^#caseInsensitive! !
 !CaseInsensitiveSearchPolicy categoriesFor: #compare:with:!comparing!public! !
 !CaseInsensitiveSearchPolicy categoriesFor: #hash:!comparing!public! !
 !CaseInsensitiveSearchPolicy categoriesFor: #keyAtValue:in:ifAbsent:!public!searching! !
+!CaseInsensitiveSearchPolicy categoriesFor: #name!accessing!public! !
 

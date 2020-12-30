@@ -9,8 +9,6 @@
 #include "Interprt.h"
 #include "InterprtPrim.inl"
 
-#define OOPSIZE 4
-
 Oop* __fastcall Interpreter::primitiveEqual(Oop* const sp, primargcount_t)
 {
 	Oop arg = *sp;
@@ -155,7 +153,7 @@ Oop* __fastcall Interpreter::primitiveHighBit(Oop* const sp, primargcount_t)
 	}
 	else
 	{
-		return primitiveFailure(_PrimitiveFailureCode::NotSupported);		// Negative receiver
+		return primitiveFailure(_PrimitiveFailureCode::IntegerOutOfRange);		// Negative receiver
 	}
 }
 

@@ -48,7 +48,7 @@ addClassConstant: aString value: anObject
 									[(VMLibrary hasBytecodeRepresentation: oldValue) or: [VMLibrary hasBytecodeRepresentation: anObject]]]].
 	binding isImmutable: false.
 	[binding value: anObject] ensure: [binding isImmutable: true].
-	requiresRecompile ifTrue: [self recompileAllReferencesToLiteral: binding].
+	requiresRecompile ifTrue: [Object recompileAllReferencesToLiteral: binding].
 	^binding!
 
 addClassVariable: aString value: anObject
@@ -179,7 +179,7 @@ classCategories: categoryCollection
 	"Private - Set the class categories of the receiver to categoryCollection."
 
 	classCategories := categoryCollection notEmpty 
-				ifTrue: [categoryCollection asSortedCollection asArray]!
+				ifTrue: [categoryCollection asArray sort]!
 
 classPool
 	"Answer the Dictionary of class variables belonging to the receiver.
@@ -792,11 +792,11 @@ allRoots
 	| roots i |
 	roots := self basicAllRoots select: [:each | (self environment lookup: each name) == each].
 	i := roots identityIndexOf: Object.
-	^i == 1
-		ifTrue: [roots]
+	i == 1
 		ifFalse: 
 			[roots at: i put: (roots at: 1).
-			roots at: 1 put: Object]!
+			roots at: 1 put: Object].
+	^roots!
 
 basicAllRoots
 	"Private - Answer a Collection of all root classes - ie. those that are subclasses of nil."

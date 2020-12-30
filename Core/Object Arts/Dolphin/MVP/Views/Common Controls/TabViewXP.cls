@@ -44,6 +44,7 @@ onPaintRequired: aPaintEvent
 
 	| backSurface pageRect clientRect tabOrientation backBitmap canvas insets extent itemTransform |
 	canvas := aPaintEvent canvas.
+	canvas forecolor: (self forecolor ifNil: [Color windowText]).
 	clientRect := self clientRectangle.
 	extent := clientRect extent.
 	insets := clientRect insetBy: (self tcmAdjustRect: false for: clientRect).
@@ -126,7 +127,7 @@ onViewDestroyed
 	super onViewDestroyed.
 	self freeTheme!
 
-paintLabel: anInteger on: aCanvas in: aRectangle 
+paintLabel: anInteger on: aCanvas in: aRectangle
 	| inverted rcItem textExtent labelRect textOffset text tcItem imageIndex |
 	tcItem := self getItem: anInteger.
 	text := tcItem text.
@@ -134,8 +135,11 @@ paintLabel: anInteger on: aCanvas in: aRectangle
 	inverted := self isInverted.
 	rcItem := aRectangle copy.
 	inverted ifTrue: [rcItem bottom: rcItem bottom - 1] ifFalse: [rcItem top: rcItem top + 1].
-	textExtent := aCanvas textExtent: (text copyWithout: $&).
-	imageIndex <= 0 
+	textExtent := aCanvas
+				textExtent: text
+				width: 0
+				flags: DT_SINGLELINE.
+	imageIndex <= 0
 		ifTrue: 
 			[textOffset := 0.
 			labelRect := Rectangle center: rcItem center extent: textExtent]
@@ -144,18 +148,18 @@ paintLabel: anInteger on: aCanvas in: aRectangle
 			imageExtent := self imageExtent.
 			textOffset := imageExtent x + self imageTextGap.
 			labelRect := Rectangle center: rcItem center
-						extent: (textExtent isZero 
+						extent: (textExtent isZero
 								ifTrue: [imageExtent]
 								ifFalse: [(textOffset + textExtent x) @ (imageExtent y max: textExtent y + 1)]).
 			space := labelRect height - imageExtent y.
-			(self imageManager imageListWithExtent: imageExtent) 
+			(self imageManager imageListWithExtent: imageExtent)
 				draw: imageIndex
 				on: aCanvas
-				at: labelRect left 
+				at: labelRect left
 						@ (labelRect top + (inverted ifTrue: [space // 2] ifFalse: [space - (space // 2)]))].
 	textExtent > 0 ifFalse: [^self].
 	labelRect := labelRect insetOriginBy: textOffset @ (inverted ifTrue: [-1] ifFalse: [1]).
-	aCanvas 
+	aCanvas
 		formatText: text
 		in: labelRect
 		flags: ##(DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS)!
@@ -166,7 +170,7 @@ paintTabLabelsOn: aCanvas
 	itemCount < 1 ifTrue: [^self].
 	nOldMode := aCanvas backgroundMode: TRANSPARENT.
 	oldFont := aCanvas font: self actualFont.
-	selectedIndex := self getSingleSelection.
+	selectedIndex := self selectionByIndex.
 	1 to: selectedIndex - 1
 		do: 
 			[:i |
@@ -215,7 +219,7 @@ paintThemedTabsOn: aCanvas offset: aMonadicValuable
 	numItems <= 0 ifTrue: [^self].
 	"Paint all the tabs except for the selected one (assuming there is one; in very unusual circumstances there may not be)"
 	hot := self itemFromPoint: self cursorPosition.
-	selected := self getSingleSelection.
+	selected := self selectionByIndex.
 	themeLib := ThemeLibrary default.
 	dc := aCanvas asParameter.
 	hTheme := self theme.
@@ -325,7 +329,7 @@ paintVerticalTabLabelsOn: aCanvas
 	itemCount < 1 ifTrue: [^self].
 	oldFont := aCanvas font: self createVerticalFont.
 	nOldMode := aCanvas backgroundMode: TRANSPARENT.
-	selectedIndex := self getSingleSelection.
+	selectedIndex := self selectionByIndex .
 	1 to: selectedIndex - 1
 		do: 
 			[:i | 

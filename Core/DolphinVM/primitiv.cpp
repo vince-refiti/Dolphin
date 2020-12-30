@@ -105,20 +105,8 @@ Oop* __fastcall Interpreter::primitiveSize(Oop* const sp, primargcount_t)
 	}
 	else
 	{
-		switch(ObjectMemory::GetBytesElementSize(reinterpret_cast<BytesOTE*>(oteReceiver)))
-		{
-		case 1:
-			*sp = integerObjectOf(bytesSize);
-			break;
-		case 2:
-			*sp = integerObjectOf(bytesSize >> 1);
-			break;
-		case 4:
-			*sp = integerObjectOf(bytesSize >> 2);
-			break;
-		default:
-			_assume(false);
-		}
+		size_t shift = static_cast<size_t>(ObjectMemory::GetBytesElementSize(reinterpret_cast<BytesOTE*>(oteReceiver)));
+		*sp = integerObjectOf(bytesSize >> shift);
 
 		return sp;
 	}
@@ -200,7 +188,10 @@ Oop* __fastcall Interpreter::primitiveResize(Oop* const sp, primargcount_t)
 		VariantObject* pNew = ObjectMemory::resize(reinterpret_cast<PointersOTE*>(oteReceiver),
 			newPointerSize,
 			bCountDownRemoved);
-		ASSERT(pNew != NULL);
+		if (pNew == nullptr)
+		{
+			return primitiveFailure(_PrimitiveFailureCode::NoMemory);
+		}
 	}
 	else
 	{
@@ -219,7 +210,10 @@ Oop* __fastcall Interpreter::primitiveResize(Oop* const sp, primargcount_t)
 
 		// Changing size of mutable byte object
 		VariantByteObject* pNew = ObjectMemory::resize(reinterpret_cast<BytesOTE*>(oteReceiver), newSize);
-		ASSERT(pNew != NULL || newSize == 0);
+		if (pNew == nullptr && newSize != 0)
+		{
+			return primitiveFailure(_PrimitiveFailureCode::NoMemory);
+		}
 	}
 
 	return sp - 1;
@@ -241,13 +235,8 @@ Oop* __fastcall Interpreter::primitiveChangeBehavior(Oop* const sp, primargcount
 		//	A class' class is an instance of Metaclass (e.g. if we send #class to
 		//	to Object, then we get the Metaclass instance 'Object class') THEREFORE
 		// The class of the class of a Class is Metaclass!
-		// Because of our use of an Object table, we've got 5 indirections here!
 
-		BehaviorOTE* oteClassOfClassArg = oteClassArg->m_oteClass;
-		Behavior* argClass = oteClassArg->m_location;
-
-		BehaviorOTE* oteMeta = oteClassOfClassArg->m_oteClass;
-		if (oteMeta == Pointers.ClassMetaclass)
+		if (oteClassArg->m_oteClass->m_oteClass == Pointers.ClassMetaclass)
 		{
 			// We have established that the argument is indeed a Class object, now lets examine the receiver
 
@@ -256,43 +245,49 @@ Oop* __fastcall Interpreter::primitiveChangeBehavior(Oop* const sp, primargcount
 			{
 				// The receiver is a non - immediate object
 				OTE* oteReceiver = reinterpret_cast<OTE*>(receiver);
-
-				BehaviorOTE* oteReceiverClass = oteReceiver->m_oteClass;
-				Behavior* receiverClass = oteReceiverClass->m_location;
-
-				// We must check class shapes the same, so compare instance spec. of receivers class with that of new class by xor'ing together
-				// and then checking if any of the important shape bits are different
-				SmallUinteger diff = receiverClass->m_instanceSpec.m_value ^ argClass->m_instanceSpec.m_value;
-				if ((diff & ~InstanceSpecification::IndirectMask) == 0)
+				if (oteReceiver->m_oteClass != oteClassArg)
 				{
-
-					oteReceiver->m_oteClass = oteClassArg;
-					// We must reduce the count on the class, since it has been overwritten in the object, and count up the new class
-					oteClassArg->countUp();
-					oteReceiverClass->countDown();
-
+					// We must check class shapes the same, so compare instance spec. of receivers class with that of new class by xor'ing together
+					// and then checking if any of the important shape bits are different
+					if (hasCompatibleShape(oteReceiver, oteClassArg->m_location))
+					{
+						ObjectMemory::storePointerWithValue(reinterpret_cast<OTE*&>(oteReceiver->m_oteClass), reinterpret_cast<OTE*>(oteClassArg));
+						return sp - 1;
+					}
+				}
+				else
+				{
+					// No change
 					return sp - 1;
 				}
+
 				// Shapes differ in significant ways
 				return primitiveFailure(_PrimitiveFailureCode::ObjectTypeMismatch);
 			}
 			else
 			{
-				// The receiver is a SmallInteger, and can be mutated to a variable byte object
-				// which we have to allocate
-
-				// Do instances of the new class contain pointers, if so fail
-				if (!argClass->m_instanceSpec.m_pointers)
+				if (oteClassArg != Pointers.ClassSmallInteger)
 				{
-					BytesOTE* oteBytes = ObjectMemory::newByteObject<false, false>(oteClassArg, sizeof(SmallUinteger));
-					oteClassArg->countUp();
-					*reinterpret_cast<SmallUinteger*>(oteBytes->m_location->m_fields) = ObjectMemoryIntegerValueOf(receiver);
+					// The receiver is a SmallInteger, and can be mutated to a variable byte object
+					// which we have to allocate
+					if (!oteClassArg->m_location->m_instanceSpec.m_pointers)
+					{
+						BytesOTE* oteBytes = ObjectMemory::newByteObject<false, false>(oteClassArg, sizeof(SmallUinteger));
+						oteClassArg->countUp();
+						*reinterpret_cast<SmallUinteger*>(oteBytes->m_location->m_fields) = ObjectMemoryIntegerValueOf(receiver);
 
-					// We've created a new object, so must replace the receiver at stack top
-					*(sp - 1) = reinterpret_cast<Oop>(oteBytes);
-					ObjectMemory::AddToZct(reinterpret_cast<OTE*>(oteBytes));
+						// We've created a new object, so must replace the receiver at stack top
+						*(sp - 1) = reinterpret_cast<Oop>(oteBytes);
+						ObjectMemory::AddToZct(reinterpret_cast<OTE*>(oteBytes));
+						return sp - 1;
+					}
+				}
+				else
+				{
+					// No change
 					return sp - 1;
 				}
+
 				// Can't change class of SmallInteger to a pointer object class
 				return primitiveFailure(_PrimitiveFailureCode::ObjectTypeMismatch);
 			}
@@ -302,6 +297,34 @@ Oop* __fastcall Interpreter::primitiveChangeBehavior(Oop* const sp, primargcount
 	}
 	// Arg is a SmallInteger (not a class)
 	return primitiveFailure(_PrimitiveFailureCode::InvalidParameter1);
+}
+
+boolean Interpreter::hasCompatibleShape(OTE* oteReceiver, ST::Behavior* argClass)
+{
+	BehaviorOTE* oteReceiverClass = oteReceiver->m_oteClass;
+	Behavior* receiverClass = oteReceiverClass->m_location;
+
+	InstanceSpecification sourceClassShape = receiverClass->m_instanceSpec;
+	InstanceSpecification targetClassShape = argClass->m_instanceSpec;
+	SmallUinteger diff = (sourceClassShape.m_value ^ targetClassShape.m_value) & ~InstanceSpecification::IndirectMask;
+	
+	if (diff == 0) return true;	// Exact match (ignoring indirection bit)
+
+	diff &= ~(InstanceSpecification::FixedFieldsMask| InstanceSpecification::IndexableMask);
+	if (diff == 0)
+	{
+		// Only the number of fixed fields or indexability is being changed. This is OK if:
+		//	- target class is fixed size and that size is the same as the current size
+		//	- target class is indexable, and the current size is sufficient to at least cover all its fixed fields
+		// Whether the source is indexable or fixed not does not actually matter
+		ASSERT(targetClassShape.m_indexable == sourceClassShape.m_indexable);
+		size_t pointerSize = oteReceiver->pointersSize();
+		return targetClassShape.m_indexable
+			? pointerSize >= targetClassShape.m_fixedFields
+			: pointerSize == targetClassShape.m_fixedFields;
+	}
+
+	return false;
 }
 
 Oop* __fastcall Interpreter::primitiveExtraInstanceSpec(Oop* const sp, primargcount_t)
@@ -586,7 +609,7 @@ Oop* __fastcall Interpreter::primitiveBasicAt(Oop* const sp, const primargcount_
 		{
 			switch (ObjectMemory::GetBytesElementSize(reinterpret_cast<BytesOTE*>(oteReceiver)))
 			{
-			case 1:
+			case ByteElementSize::Bytes:
 				if (static_cast<size_t>(index) < oteReceiver->bytesSize())
 				{
 					uint8_t value = reinterpret_cast<BytesOTE*>(oteReceiver)->m_location->m_fields[index];
@@ -595,7 +618,7 @@ Oop* __fastcall Interpreter::primitiveBasicAt(Oop* const sp, const primargcount_
 				}
 				break;
 				
-			case 2:
+			case ByteElementSize::Words:
 				if (static_cast<size_t>(index) < (oteReceiver->bytesSize() / 2))
 				{
 					uint16_t value = reinterpret_cast<WordsOTE*>(oteReceiver)->m_location->m_fields[index];
@@ -604,7 +627,7 @@ Oop* __fastcall Interpreter::primitiveBasicAt(Oop* const sp, const primargcount_
 				}
 				break;
 
-			case 4:
+			case ByteElementSize::Quads:
 				if (static_cast<size_t>(index) < (oteReceiver->bytesSize() / 4))
 				{
 					uint32_t value = reinterpret_cast<QuadsOTE*>(oteReceiver)->m_location->m_fields[index];
@@ -680,7 +703,7 @@ Oop* __fastcall Interpreter::primitiveBasicAtPut(Oop* const sp, primargcount_t)
 
 					switch (ObjectMemory::GetBytesElementSize(reinterpret_cast<BytesOTE*>(oteReceiver)))
 					{
-					case 1:
+					case ByteElementSize::Bytes:
 						if (newValue <= UINT8_MAX)
 						{
 							if (index < size)
@@ -697,7 +720,7 @@ Oop* __fastcall Interpreter::primitiveBasicAtPut(Oop* const sp, primargcount_t)
 						else
 							return primitiveFailure(_PrimitiveFailureCode::IntegerOutOfRange);
 
-					case 2:
+					case ByteElementSize::Words:
 						if (newValue <= UINT16_MAX)
 						{
 							if (index < (size / 2))
@@ -714,7 +737,7 @@ Oop* __fastcall Interpreter::primitiveBasicAtPut(Oop* const sp, primargcount_t)
 						else
 							return primitiveFailure(_PrimitiveFailureCode::IntegerOutOfRange);
 
-					case 4:
+					case ByteElementSize::Quads:
 						if (index < (size / 4))
 						{
 							reinterpret_cast<QuadsOTE*>(oteReceiver)->m_location->m_fields[index] = static_cast<uint32_t>(newValue);
@@ -771,7 +794,7 @@ Oop* __fastcall Interpreter::primitiveInstVarAt(Oop* const sp, primargcount_t)
 		{
 			switch (ObjectMemory::GetBytesElementSize(reinterpret_cast<BytesOTE*>(oteReceiver)))
 			{
-			case 1:
+			case ByteElementSize::Bytes:
 				if (static_cast<size_t>(index) < oteReceiver->bytesSize())
 				{
 					uint8_t value = reinterpret_cast<BytesOTE*>(oteReceiver)->m_location->m_fields[index];
@@ -780,7 +803,7 @@ Oop* __fastcall Interpreter::primitiveInstVarAt(Oop* const sp, primargcount_t)
 				}
 				break;
 
-			case 2:
+			case ByteElementSize::Words:
 				if (static_cast<size_t>(index) < (oteReceiver->bytesSize() / 2))
 				{
 					uint16_t value = reinterpret_cast<WordsOTE*>(oteReceiver)->m_location->m_fields[index];
@@ -789,7 +812,7 @@ Oop* __fastcall Interpreter::primitiveInstVarAt(Oop* const sp, primargcount_t)
 				}
 				break;
 
-			case 4:
+			case ByteElementSize::Quads:
 				if (static_cast<size_t>(index) < (oteReceiver->bytesSize() / 4))
 				{
 					uint32_t value = reinterpret_cast<QuadsOTE*>(oteReceiver)->m_location->m_fields[index];
@@ -857,7 +880,7 @@ Oop* __fastcall Interpreter::primitiveInstVarAtPut(Oop* const sp, primargcount_t
 
 					switch (ObjectMemory::GetBytesElementSize(reinterpret_cast<BytesOTE*>(oteReceiver)))
 					{
-					case 1:
+					case ByteElementSize::Bytes:
 						if (newValue <= UINT8_MAX)
 						{
 							if (index < size)
@@ -874,7 +897,7 @@ Oop* __fastcall Interpreter::primitiveInstVarAtPut(Oop* const sp, primargcount_t
 						}
 						return primitiveFailure(_PrimitiveFailureCode::IntegerOutOfRange);
 
-					case 2:
+					case ByteElementSize::Words:
 						if (newValue <= UINT16_MAX)
 						{
 							if (index < (size / 2))
@@ -891,7 +914,7 @@ Oop* __fastcall Interpreter::primitiveInstVarAtPut(Oop* const sp, primargcount_t
 						}
 						return primitiveFailure(_PrimitiveFailureCode::IntegerOutOfRange);
 
-					case 4:
+					case ByteElementSize::Quads:
 						if (index < (size / 4))
 						{
 							reinterpret_cast<QuadsOTE*>(oteReceiver)->m_location->m_fields[index] = static_cast<uint32_t>(newValue);

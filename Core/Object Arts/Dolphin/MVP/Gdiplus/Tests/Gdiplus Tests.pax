@@ -1,6 +1,7 @@
 ﻿| package |
 package := Package name: 'Gdiplus Tests'.
 package paxVersion: 1;
+	preDeclareClassesOnLoad: false;
 	basicComment: 'Dolphin Smalltalk GDI+ Binding tests
 
 '.
@@ -9,7 +10,6 @@ package basicPackageVersion: '6.1'.
 
 
 package classNames
-	add: #ARGBTest;
 	add: #GdiplusAdjustableArrowCapTest;
 	add: #GdiplusBaseTest;
 	add: #GdiplusBitmapFromBitmapInitializerTest;
@@ -44,6 +44,8 @@ package classNames
 	add: #GdiplusTestInitializer;
 	add: #GdiplusTests;
 	add: #GpColorMatrixTest;
+	add: #POINTFTest;
+	add: #RECTFTest;
 	yourself.
 
 package methodNames
@@ -62,6 +64,7 @@ package setPrerequisites: #(
 	'..\..\..\Base\Dolphin'
 	'..\..\Base\Dolphin Basic Geometry'
 	'..\..\Base\Dolphin MVP Base'
+	'..\..\Dolphin MVP Tests'
 	'..\Gdiplus'
 	'..\..\..\ActiveX\Structured Storage\OLE Structured Storage'
 	'..\..\..\..\..\Contributions\Camp Smalltalk\SUnit\SUnit'
@@ -81,7 +84,12 @@ TestCase subclass: #GdiplusTests
 	classVariableNames: ''
 	poolDictionaries: 'GdiplusConstants'
 	classInstanceVariableNames: ''!
-GdiplusTests subclass: #ARGBTest
+ExternalPointTest subclass: #POINTFTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+ExternalRectangleTest subclass: #RECTFTest
 	instanceVariableNames: ''
 	classVariableNames: ''
 	poolDictionaries: ''

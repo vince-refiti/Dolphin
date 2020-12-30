@@ -20,13 +20,16 @@ Class Variables:
 !GUID categoriesForClass!External-Data-Structured-COM! !
 !GUID methodsFor!
 
-_collate: comperand
-	"Private - Answer the ordering relationship between the receiver
-	and the argument, comperand."
+<=> aGUID
+	"Answer the ordering relationship between the receiver and the argument.
+	Colloquially known as the spaceship operator."
 
 	| status answer |
 	status := ByteArray newFixed: 4.
-	answer := RPCLibrary default uuidCompare: self uuid2: comperand status: status.
+	answer := RPCLibrary default
+				uuidCompare: self
+				uuid2: aGUID
+				status: status.
 	status := status dwordAtOffset: 0.
 	status == 0 ifFalse: [RPCError signalWith: status].
 	^answer!
@@ -34,25 +37,24 @@ _collate: comperand
 = comperand
 	"Answer whether the receiver is equivalent to the <Object>, comperand."
 
-	^self species = comperand species and: [(self _collate: comperand) == 0]!
+	^self species = comperand species and: [self <=> comperand == 0]!
 
 asByteArray
-	"Answer the raw contents of the receiver as a byte array."
-
-	^self yourAddress asExternalAddress copyFrom: 1 to: self size!
-
-asInteger
-	"Answer the 128-bit integer value of the receiver."
+	"Answer the raw contents of the receiver as a ByteArray."
 
 	| answer |
 	answer := ByteArray new: 16.
-	self 
+	self
 		replaceBytesOf: answer
 		from: 1
 		to: 16
 		startingAt: 1.
-	answer isImmutable: true.
-	^answer becomeA: LargeInteger!
+	^answer!
+
+asInteger
+	"Answer the 128-bit integer value of the receiver."
+
+	^LargeInteger fromBytes: self asByteArray!
 
 asObject
 	"Answer the <Object> value represented by the receiver."
@@ -180,7 +182,7 @@ value: guidBytes
 	"Set the raw binary value of the receiver from those of the argument."
 
 	guidBytes replaceBytesOf: self from: 1 to: self class byteSize startingAt: 1! !
-!GUID categoriesFor: #_collate:!comparing!private! !
+!GUID categoriesFor: #<=>!comparing!public! !
 !GUID categoriesFor: #=!comparing!public! !
 !GUID categoriesFor: #asByteArray!converting!public! !
 !GUID categoriesFor: #asInteger!converting!public! !
@@ -296,16 +298,13 @@ fromIdlString: aString
 	^answer!
 
 fromString: aString
-	"Answer a new instance of the receiver instantiated from the argument, aString,
-	which is in Microsoft(tm) GUID format.
-	Implementation Note: Subclasses override this because OLE defines more specific
-	functions for that purpose, which we use to be good boys, even though it appears not
-	to be necessary (i.e. if we drop down a level and use the underlying
-	RPC library function, it works anyway)."
+	"Answer a new instance of the receiver instantiated from the argument, aString, which is in Microsoft™ GUID format.
+	Implementation Note: Subclasses override this because OLE defines more specific functions for that purpose, which we use to be good boys, even though it appears not to be necessary (i.e. if we drop down a level and use the underlying RPC library function, it works anyway)."
 
 	| answer status |
 	answer := self newNull.
-	(status := RPCLibrary default uuidFromString: (aString copyFrom: 2 to: aString size - 1) uuid: answer) == 0
+	(status := RPCLibrary default uuidFromString: (aString copyFrom: 2 to: aString size - 1)
+				uuid: answer) == 0
 		ifFalse: [RPCError signalWith: status].
 	^answer!
 

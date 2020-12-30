@@ -7,7 +7,7 @@ DolphinCollectionTest subclass: #SequenceableCollectionTest
 	classInstanceVariableNames: ''!
 SequenceableCollectionTest guid: (GUID fromString: '{4c32dbcc-4044-442b-95d9-d6e8ad2396cf}')!
 SequenceableCollectionTest isAbstract: true!
-SequenceableCollectionTest comment: 'SUnitBrowser openOnTestCase: self'!
+SequenceableCollectionTest comment: ''!
 !SequenceableCollectionTest categoriesForClass!Unclassified! !
 !SequenceableCollectionTest methodsFor!
 
@@ -59,10 +59,7 @@ testAt
 	#(-1 0 2) do: [:i | self should: [subject at: i] raise: BoundsError].
 	subject := self newCollection: #(65 66 67).
 	1 to: subject size do: [:i | self assert: (subject at: i) equals: (self assimilate: 65 + i - 1)].
-	(Array
-		with: -1
-		with: 0
-		with: subject size + 1) do: [:i | self should: [subject at: i] raise: BoundsError]!
+	{-1. 0. subject size + 1} do: [:i | self should: [subject at: i] raise: BoundsError]!
 
 testBeginsWith
 	"Test SequenceableCollection>>beginsWith:"
@@ -114,16 +111,22 @@ testBeginsWith
 	self assert: (sequence beginsWith: (self newUnsortedCollection: #($1 $2 $3 $4 $5 $6))) not!
 
 testBinarySearch
-	| searchee lessThan |
+	| searchee lessThan lessOrEqual |
 	lessThan := [:x :y | x < y].
-	searchee := self newCollection: 'abcdefghijklmnopqrstuvwxyz'.
-	(searchee respondsTo: #binarySearchFor:using:)
-		ifFalse: 
-			["Binary search method introduced in D6"
-			^self].
-	self assert: (searchee binarySearchFor: (searchee at: 1) using: lessThan) equals: 1.
-	self assert: (searchee binarySearchFor: (searchee at: 8) using: lessThan) equals: 8.
-	self assert: (searchee binarySearchFor: (searchee at: 26) using: lessThan) equals: 26!
+	searchee := self newCollection: 'bcdefghijklmnopqrstuvwxy'.
+	self assert: (searchee binarySearchFor: (self assimilate: $a) using: lessThan) equals: 1.
+	self assert: (searchee binarySearchFor: (self assimilate: $b) using: lessThan) equals: 1.
+	self assert: (searchee binarySearchFor: (self assimilate: $e) using: lessThan) equals: 4.
+	self assert: (searchee binarySearchFor: (self assimilate: $y) using: lessThan) equals: 24.
+	self assert: (searchee binarySearchFor: (self assimilate: $z) using: lessThan) equals: 25.
+	lessOrEqual := [:x :y | x <= y].
+	self assert: (searchee binarySearchFor: (self assimilate: $a) using: lessOrEqual) equals: 1.
+	self assert: (searchee binarySearchFor: (self assimilate: $b) using: lessOrEqual) equals: 2.
+	self assert: (searchee binarySearchFor: (self assimilate: $e) using: lessOrEqual) equals: 5.
+	self assert: (searchee binarySearchFor: (self assimilate: $y) using: lessOrEqual) equals: 25.
+	self assert: (searchee binarySearchFor: (self assimilate: $z) using: lessOrEqual) equals: 25.
+	self assert: ((self newCollection: #()) binarySearchFor: (self assimilate: $a) using: lessOrEqual) equals: 1.
+!
 
 testConcatenation
 	| a b |
@@ -272,6 +275,26 @@ testCopyReplaceAllWith
 			actual := subject copyReplaceAll: (self newCollection: eachCase second)
 						with: (self newCollection: eachCase third).
 			self assert: actual equals: expected]!
+
+testCopyWithAtIndex
+	#(#(#() 1 #($1)) #(#($2) 1 #($1 $2)) #(#($2) 2 #($2 $1)) #(#($2 $3) 1 #($1 $2 $3)) #(#($2 $3) 2 #($2 $1 $3)) #(#($2 $3) 3 #($2 $3 $1)))
+		do: 
+			[:each |
+			self assert: ((self newCollection: each first) copyWith: (self assimilate: $1) atIndex: each second)
+				equals: (self newCollection: each third)].
+	#(#() 2 #() 0 #($1) 3 #($1 $2) 4) pairsDo: 
+			[:each :index |
+			self should: [(self newCollection: each) copyWith: (self assimilate: $1) atIndex: index]
+				raise: BoundsError]!
+
+testCopyWithoutIndex
+	#(#(#($1) 1 #()) #(#($1 $2) 1 #($2)) #(#($1 $2) 2 #($1)) #(#($1 $2 $3) 1 #($2 $3)) #(#($1 $2 $3) 2 #($1 $3)) #(#($1 $2 $3) 3 #($1 $2)))
+		do: 
+			[:each |
+			self assert: ((self newCollection: each first) copyWithoutIndex: each second)
+				equals: (self newCollection: each third)].
+	#(#() 1 #() 0 #($1) 2 #($1 $2) 3)
+		pairsDo: [:each :index | self should: [(self newCollection: each) copyWithoutIndex: index] raise: Error]!
 
 testEndsWith
 	"Test SequenceableCollection>>endsWith:"
@@ -541,69 +564,68 @@ testIncludesAnyOf
 	self assert: (searchee includesAnyOf: (self newCollection: 'b'))!
 
 testIndexOfAnyOfStartingAt
-	| searchee db bd de a d abc offset aa |
+	| searchee db bd de a abc offset aa |
 	db := self newCollection: 'db'.
 	a := self newCollection: 'a'.
-	d := self newCollection: 'd'.
 	abc := self newCollection: 'abc'.
 	searchee := self newCollection: ''.
-	self 
+	self
 		verifyIndexOfAnyOf: searchee
 		startingAt: 1
 		in: searchee
 		is: 0.
-	self 
+	self
 		verifyIndexOfAnyOf: a
 		startingAt: 1
 		in: searchee
 		is: 0.
-	self 
+	self
 		verifyIndexOfAnyOf: db
 		startingAt: 1
 		in: searchee
 		is: 0.
 	searchee := abc.
-	self 
+	self
 		verifyIndexOfAnyOf: db
 		startingAt: 1
 		in: searchee
 		is: 2.
-	self 
+	self
 		verifyIndexOfAnyOf: db
 		startingAt: 2
 		in: searchee
 		is: 2.
-	self 
+	self
 		verifyIndexOfAnyOf: db
 		startingAt: 3
 		in: searchee
 		is: 0.
 	bd := self newCollection: 'bd'.
-	self 
+	self
 		verifyIndexOfAnyOf: bd
 		startingAt: 1
 		in: searchee
 		is: 2.
 	de := self newCollection: 'de'.
-	self 
+	self
 		verifyIndexOfAnyOf: de
 		startingAt: 1
 		in: searchee
 		is: 0.
 	searchee := self newCollection: (String new: 1).
-	searchee isSymbol 
+	searchee isSymbol
 		ifFalse: 
-			[self 
+			[self
 				verifyIndexOfAnyOf: searchee
 				startingAt: 1
 				in: searchee
 				is: 1.
-			self 
+			self
 				verifyIndexOfAnyOf: a
 				startingAt: 1
 				in: searchee
 				is: 0.
-			self 
+			self
 				verifyIndexOfAnyOf: db
 				startingAt: 1
 				in: searchee
@@ -611,17 +633,17 @@ testIndexOfAnyOfStartingAt
 	searchee := abc , (self newCollection: (String new: 1)).
 	offset := searchee first == Character null ifTrue: [1] ifFalse: [0].
 	aa := 1.
-	self 
+	self
 		verifyIndexOfAnyOf: db
 		startingAt: aa
 		in: searchee
 		is: 2 + offset.
-	self 
+	self
 		verifyIndexOfAnyOf: a
 		startingAt: aa
 		in: searchee
 		is: 1 + offset.
-	self 
+	self
 		verifyIndexOfAnyOf: de
 		startingAt: aa
 		in: searchee
@@ -740,6 +762,73 @@ testResize
 	self assert: subject size equals: 1.
 	self assert: actual equals: (self newCollection: #($a))!
 
+testReverse
+	#(#($1 $2 $3 $4 $5) #($5 $4 $3 $2 $1) #($1) #($1) #() #() #($1 $2) #($2 $1)) pairsDo: 
+			[:original :reversed |
+			| subject expected actual |
+			subject := self newCollection: original.
+			actual := subject reverse.
+			expected := self newUnsortedCollection: reversed.
+			self assert: actual equals: expected]!
+
+testReversedFromTo
+	| subject expected actual |
+	subject := self newCollection: #($1 $2 $3 $4 $5).
+	actual := subject reversedFrom: 1 to: 5.
+	expected := self newUnsortedCollection: #($5 $4 $3 $2 $1).
+	self assert: actual equals: expected.
+	actual := subject reversedFrom: 3 to: 5.
+	expected := self newUnsortedCollection: #($5 $4 $3).
+	self assert: actual equals: expected.
+	actual := subject reversedFrom: 6 to: 5.
+	expected := self newUnsortedCollection: #().
+	self assert: actual equals: expected.
+	self
+		should: [subject reversedFrom: 0 to: 1]
+		raise: BoundsError
+		matching: [:ex | ex tag = 0].
+	self
+		should: [subject reversedFrom: 5 to: 6]
+		raise: BoundsError
+		matching: [:ex | ex tag = 6]!
+
+testSelectAll
+	#('' 'a' 'abc') do: 
+			[:each |
+			| selection subject |
+			subject := self newCollection: each.
+			selection := subject select: [:a | true].
+			self assert: selection equals: subject]!
+
+testSelectEveryOther
+	#('' '' 'a' 'a' 'ab' 'a' 'abc' 'ac' 'abcd' 'ac' 'abcde' 'ace') pairsDo: 
+			[:case :result |
+			| selection subject expected count |
+			subject := self newCollection: case.
+			expected := self newCollection: result.
+			count := 0.
+			selection := subject select: [:a | (count := count + 1) odd].
+			self assert: selection equals: expected]!
+
+testSelectNone
+	| empty |
+	empty := self newCollection: ''.
+	#('' 'a' 'ab' 'abc') do: 
+			[:each |
+			| selection subject |
+			subject := self newCollection: each.
+			selection := subject select: [:a | false].
+			self assert: selection equals: empty]!
+
+testSelectOne
+	#('' '' 'b' '' 'a' 'a' 'abca' 'aa' 'bcd' '') pairsDo: 
+			[:case :result |
+			| selection subject expected |
+			subject := self newCollection: case.
+			expected := self newCollection: result.
+			selection := subject select: [:a | a = (self assimilate: $a)].
+			self assert: selection equals: expected]!
+
 unsortedCollectionClass
 	^self collectionClass!
 
@@ -785,6 +874,8 @@ verifyIndexOfAnyOf: searchFor startingAt: startInteger in: searchee is: foundInt
 !SequenceableCollectionTest categoriesFor: #testConcatenation!public!unit tests! !
 !SequenceableCollectionTest categoriesFor: #testCopyFromTo!public!unit tests! !
 !SequenceableCollectionTest categoriesFor: #testCopyReplaceAllWith!public!unit tests! !
+!SequenceableCollectionTest categoriesFor: #testCopyWithAtIndex!public!unit tests! !
+!SequenceableCollectionTest categoriesFor: #testCopyWithoutIndex!public!unit tests! !
 !SequenceableCollectionTest categoriesFor: #testEndsWith!public!unit tests! !
 !SequenceableCollectionTest categoriesFor: #testFindFirst!public!unit tests! !
 !SequenceableCollectionTest categoriesFor: #testFirst!public!unit tests! !
@@ -800,6 +891,12 @@ verifyIndexOfAnyOf: searchFor startingAt: startInteger in: searchee is: foundInt
 !SequenceableCollectionTest categoriesFor: #testMixedConcatenation!public!unit tests! !
 !SequenceableCollectionTest categoriesFor: #testReplaceFromToWithStartingAt!public!unit tests! !
 !SequenceableCollectionTest categoriesFor: #testResize!public!unit tests! !
+!SequenceableCollectionTest categoriesFor: #testReverse!public!unit tests! !
+!SequenceableCollectionTest categoriesFor: #testReversedFromTo!public!unit tests! !
+!SequenceableCollectionTest categoriesFor: #testSelectAll!public!unit tests! !
+!SequenceableCollectionTest categoriesFor: #testSelectEveryOther!public!unit tests! !
+!SequenceableCollectionTest categoriesFor: #testSelectNone!public!unit tests! !
+!SequenceableCollectionTest categoriesFor: #testSelectOne!public!unit tests! !
 !SequenceableCollectionTest categoriesFor: #unsortedCollectionClass!constants!private! !
 !SequenceableCollectionTest categoriesFor: #verifyConcatenation:with:!helpers!private! !
 !SequenceableCollectionTest categoriesFor: #verifyConcatenationResult:of:with:!helpers!private! !

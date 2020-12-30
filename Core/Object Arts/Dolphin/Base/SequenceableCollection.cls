@@ -51,7 +51,7 @@ _sameAsString: comparand
 	size := self size.
 	string2 := String new: size.
 	1 to: size do: [:i | string2 basicAt: i put: (self at: i)].
-	^(comparand _collate: string2) == 0!
+	^comparand <=> string2 == 0!
 
 = comparand
 	"Answer whether the receiver and the <Object> argument, comparand,
@@ -71,12 +71,10 @@ _sameAsString: comparand
 			ifFalse: [^false]].
 	^true!
 
-after: target
-	"Answer the element after the <Object> argument, target.  
-	Report an error if target is not in the receiver, or if there 
-	are no elements after it."
+after: anObject
+	"Answer the element after the argument, anObject. Report an error if target is not in the receiver, or if there are no elements after it."
 
-	^self after: target ifAbsent: [self errorNotFound: target]!
+	^self after: anObject ifAbsent: [self errorNotFound: anObject]!
 
 after: target ifAbsent: exceptionHandler
 	"Answer the element after target, or if not present the result of evaluating the
@@ -110,10 +108,9 @@ allButLast
 	^ self allButLast: 1!
 
 allButLast: anInteger
-	"Answer a copy of the receiver containing all but the last anInteger
-	elements. Raise an error if there are not enough elements."
+	"Answer a copy of the receiver containing all but the last anInteger elements. Raise an error if there are not enough elements."
 
-	^self first: self size - anInteger!
+	^self copyFrom: 1 to: self size - anInteger!
 
 anyOne
 	"Answer an arbitrary element of the collection.Raise an error if the collection is empty."
@@ -156,7 +153,7 @@ asRunArray
 	runs := Array writeStream.
 	values := Array writeStream.
 	self runsAndValuesDo: 
-			[:run :value | 
+			[:run :value |
 			runs nextPut: run.
 			values nextPut: value].
 	^RunArray runs: runs contents values: values contents!
@@ -172,6 +169,14 @@ associations
 	answer := self copyLikeOfSize: self copySize.
 	self keysAndValuesDo: [:i :each | answer at: i put: i -> each].
 	^answer!
+
+asString
+	"Answer a <String> containing the same <Character>s as the receiver. This can be expected to fail if any of the elements of the receiver are not <Character>s."
+
+	| stream |
+	stream := String writeStream: self copySize.
+	self do: [:each | stream nextPut: each].
+	^stream grabContents!
 
 at: index
 	"Answer an <Object> which is the element of the receiver 
@@ -229,6 +234,30 @@ basicBeginsWith: aCollection
 			i := i + 1].
 	^true!
 
+basicIndexOfSubCollection: targetSequence startingAt: start
+	| firstElement subSize size |
+	subSize := targetSequence size.
+	subSize == 0 ifTrue: [^0].
+	firstElement := targetSequence at: 1.
+	size := self size.
+	subSize == 1
+		ifTrue: 
+			[^self
+				nextIndexOf: firstElement
+				from: start
+				to: size].
+	start to: size - subSize + 1
+		do: 
+			[:i |
+			(self at: i) = firstElement
+				ifTrue: 
+					[| j |
+					j := 2.
+					[(self at: i + j - 1) = (targetSequence at: j)] whileTrue: 
+							[j = subSize ifTrue: [^i].
+							j := j + 1]]].
+	^0!
+
 before: target
 	"Answer the receiver's element immediately before the argument, target. 
 	Raise an exception if target is not an element of the receiver, or if 
@@ -236,18 +265,14 @@ before: target
 
 	^self before: target ifAbsent: [self errorNotFound: target]!
 
-before: target ifAbsent: exceptionHandler
-	"Answer the element before the argument, target, or if not present the 
-	result of evaluating the niladic valuable, exceptionHandler."
+before: anObject ifAbsent: exceptionHandler
+	"Answer the element before the argument, anObject, or if not present the result of evaluating the niladic valuable, exceptionHandler."
 
 	| index |
-	index := self indexOf: target.
+	index := self indexOf: anObject.
 	^index == 0
 		ifTrue: [exceptionHandler value]
-		ifFalse: [
-			index == 1 
-				ifTrue: [self errorFirstObject: target]
-				ifFalse: [self at: index - 1]].!
+		ifFalse: [index == 1 ifTrue: [self errorFirstObject: anObject] ifFalse: [self at: index - 1]]!
 
 beginsWith: aCollection
 	"Answer whether the receiver begins with the sequence
@@ -256,7 +281,7 @@ beginsWith: aCollection
 	^self basicBeginsWith: aCollection!
 
 binarySearchFor: anObject using: searchBlock 
-	"Answer the index at which anObject is located using a binary chop search based on searchBlock"
+	"Answer the index at which anObject would have to be inserted into this collection in order to maintain its sort order. The <dyadicValuble> search block must express the same ordering."
 
 	^self class 
 		binarySearch: self
@@ -285,9 +310,7 @@ copyFrom: start
 	^self copyFrom: start to: self size!
 
 copyFrom: startInteger to: stopInteger
-	"Answer a new <sequencedReadableCollection> like the receiver containing those elements of
-	the receiver between the <integer> indices startInteger and stopInteger, inclusive, and in
-	the same order."
+	"Answer a new <sequencedReadableCollection> like the receiver containing those elements of the receiver between the <integer> indices startInteger and stopInteger, inclusive, and in the same order."
 
 	| len |
 	len := stopInteger - startInteger + 1.
@@ -310,19 +333,20 @@ copyLikeOfSize: anInteger
 
 	^self species ofSize: anInteger!
 
-copyReplaceAll: oldElements with: newElements
-	"Answer a new <sequencedReadableCollection> which is a copy of the receiver but in which all
-	occurrences of the sequence, oldElements, have been replaced by the sequence, newElements."
+copyReplaceAll: oldSequencedReadableCollection with: newSequencedReadableCollection
+	"Answer a new <sequencedReadableCollection> which is a copy of the receiver but in which all occurrences of an old element sequence have been replaced by a new element sequence."
 
 	| target matchSize replaceSize index sourcePos targetPos indices occurrences |
-	(index := self indexOfSubCollection: oldElements startingAt: 1) == 0 ifTrue: [^self mutableCopy].
-	matchSize := oldElements size.
+	(index := self indexOfSubCollection: oldSequencedReadableCollection startingAt: 1) == 0
+		ifTrue: [^self mutableCopy].
+	matchSize := oldSequencedReadableCollection size.
 	indices := OrderedCollection new: 5.
 	
 	[indices addLast: index.
-	(index := self indexOfSubCollection: oldElements startingAt: index + matchSize) == 0]
+	(index := self indexOfSubCollection: oldSequencedReadableCollection startingAt: index + matchSize)
+		== 0]
 			whileFalse.
-	replaceSize := newElements size.
+	replaceSize := newSequencedReadableCollection size.
 	occurrences := indices size.
 	target := self copyLikeOfSize: self size + ((replaceSize - matchSize) * occurrences).
 	sourcePos := 1.
@@ -345,7 +369,7 @@ copyReplaceAll: oldElements with: newElements
 			target
 				replaceFrom: next
 				to: targetPos - 1
-				with: newElements
+				with: newSequencedReadableCollection
 				startingAt: 1].
 
 	"Copy any remaining elements"
@@ -465,6 +489,23 @@ copyWith: newElement
 			with: self
 			startingAt: 1!
 
+copyWith: anObject atIndex: anInteger
+	"Answer a <SequenceableCollection> which is a copy of the receiver that has anObject inserted at the index, anInteger."
+
+	| size |
+	size := self size + 1.
+	^(self copyLikeOfSize: size)
+		replaceFrom: 1
+			to: anInteger - 1
+			with: self
+			startingAt: 1;
+		at: anInteger put: anObject;
+		replaceFrom: anInteger + 1
+			to: size
+			with: self
+			startingAt: anInteger;
+		yourself!
+
 copyWithout: oldElement
 	"Answer a <sequencedReadableCollection> which is a copy of the receiver, but in
 	which all occurrences of the <Object> oldElement have been removed."
@@ -484,6 +525,27 @@ copyWithoutAll: oldElements
 	self 
 		do: [:element | (oldElements includes: element) ifFalse: [aStream nextPut: element]].
 	^aStream contents!
+
+copyWithoutIndex: anInteger
+	"Answer a <SequenceableCollection> which is a copy of the receiver but without the element with the specified index."
+
+	| size |
+	size := self size - 1.
+	^(self copyLikeOfSize: size)
+		replaceFrom: 1
+			to: anInteger - 1
+			with: self
+			startingAt: 1;
+		replaceFrom: anInteger
+			to: size
+			with: self
+			startingAt: anInteger + 1;
+		yourself!
+
+decodeAt: anInteger
+	"Private - Answer the encoded object beginning at the specified position in the receiver."
+
+	^self at: anInteger!
 
 decodeFrom: aReadStream upTo: anObject
 	"Private - Answer the future sequence values of the <ReadStream>, aReadStream, up to but not including, the <Object>, anObject.
@@ -528,7 +590,7 @@ encodedAt: anInteger put: anObject
 	^anInteger!
 
 encodedSizeOf: anObject
-	"Private - Answer the number of basic slots occupied by the argument when encoded in the receiver."
+	"Private - Answer the number of basic slots occupied by the argument when encoded in the receiver's encoding."
 
 	^1!
 
@@ -545,7 +607,7 @@ encodeOn: aPuttableStream put: anObject
 	^aPuttableStream basicNextPut: anObject!
 
 encoding
-	^#pointers!
+	^self class encoding!
 
 endsWith: aCollection
 	"Answer whether the receiver ends with the sequence of objects in the <Collection> argument"
@@ -557,6 +619,9 @@ endsWith: aCollection
 			(self at: i) = each ifFalse: [^false].
 			i := i + 1].
 	^true!
+
+errorCollectionsOfDifferentSizes
+	^self error: 'collections are of different sizes'!
 
 errorFirstObject: target
 	"Private - Report an error to the effect that an attempt was made to access the object
@@ -576,6 +641,11 @@ errorValueNotFound: aValue
 
 	^self error: ('value not found: <1p>' expandMacrosWith: aValue)
 !
+
+expandMacrosIn: aString
+	"Private - Expand aString with the collection of replaceable arguments represented by the receiver."
+
+	^aString expandMacrosWithArguments: self!
 
 fifth
 	"Answer an <Object> which is the fifth element of the receiver. 
@@ -764,34 +834,10 @@ indexOfSubCollection: aSequenceableCollection
 
 	^self indexOfSubCollection: aSequenceableCollection startingAt: 1!
 
-indexOfSubCollection: targetSequence startingAt: start 
-	"Answer the <integer> index of the next occurrence within the 
-	receiver of the <sequencedReadableCollection> targetSequence,
-	starting at the <integer> index start.
-	If there are no such occurrences, answer 0."
+indexOfSubCollection: aSequencedReadableCollection startingAt: startInteger
+	"Answer the <integer> index of the next occurrence within the receiver of the <sequencedReadableCollection> sub-sequence, starting at the specified <integer> index. If there are no such occurrences (or the search sequence is empty), answer 0."
 
-	| size subSize firstElement |
-	subSize := targetSequence size.
-	subSize == 0 ifTrue: [^0].
-	firstElement := targetSequence at: 1.
-	size := self size.
-	subSize == 1 
-		ifTrue: 
-			[^self 
-				nextIndexOf: firstElement
-				from: start
-				to: size].
-	start to: size - subSize + 1
-		do: 
-			[:i | 
-			(self at: i) = firstElement 
-				ifTrue: 
-					[| j |
-					j := 2.
-					[(self at: i + j - 1) = (targetSequence at: j)] whileTrue: 
-							[j = subSize ifTrue: [^i].
-							j := j + 1]]].
-	^0!
+	^self basicIndexOfSubCollection: aSequencedReadableCollection startingAt: startInteger!
 
 indexOfSubCollection: targetSequence startingAt: start ifAbsent: exceptionHandler
 	"Answer the <integer> index of the next occurrence within the 
@@ -1098,16 +1144,18 @@ resize: anInteger
 		become: self!
 
 reverse
-	"Answer a new <sequencedReadableCollection> which contains the same elements
-	as the receiver, but in reverse order."
+	"Answer a new <sequencedReadableCollection> which contains the same elements as the receiver, but in reverse order."
 
-	| answer i |
-	i := self size.
-	answer := self copyLikeOfSize: i.
-	self do: 
-			[:element | 
-			answer at: i put: element.
-			i := i - 1].
+	^self reversedFrom: 1 to: self size!
+
+reversedFrom: startInteger to: stopInteger
+	"Answer a new <sequencedReadableCollection> like the receiver containing those elements of the receiver between the <integer> indices startInteger and stopInteger, inclusive, but in reverse order."
+
+	| answer offset len |
+	len := stopInteger - startInteger + 1.
+	answer := self species ofSize: len.
+	offset := len + startInteger.
+	startInteger to: stopInteger do: [:i | answer at: offset - i put: (self at: i)].
 	^answer!
 
 reverseDo: operation
@@ -1228,12 +1276,8 @@ with: otherCollection do: operation
 	<sequencedReadableCollection> argument, otherCollection. 
 	Raise an exception if otherCollection is not the same size as the receiver."
 
-	self size = otherCollection size
-		ifFalse: [^self error: 'collections are of different sizes'].
-	self keysAndValuesDo: [:i :elem |
-		operation
-			value: elem
-			value: (otherCollection at: i)]!
+	self size = otherCollection size ifFalse: [^self errorCollectionsOfDifferentSizes].
+	self keysAndValuesDo: [:i :elem | operation value: elem value: (otherCollection at: i)]!
 
 writeStream
 	"Answer a WriteStream on the receiver."
@@ -1254,6 +1298,7 @@ writeStream
 !SequenceableCollection categoriesFor: #asArray!converting!public! !
 !SequenceableCollection categoriesFor: #asRunArray!converting!public! !
 !SequenceableCollection categoriesFor: #associations!accessing!public! !
+!SequenceableCollection categoriesFor: #asString!public! !
 !SequenceableCollection categoriesFor: #at:!accessing!public!testing! !
 !SequenceableCollection categoriesFor: #at:ifAbsent:!accessing!public! !
 !SequenceableCollection categoriesFor: #at:ifPresent:!accessing!public! !
@@ -1261,6 +1306,7 @@ writeStream
 !SequenceableCollection categoriesFor: #atAll:put:!accessing!public! !
 !SequenceableCollection categoriesFor: #atAllPut:!accessing!public! !
 !SequenceableCollection categoriesFor: #basicBeginsWith:!comparing!public! !
+!SequenceableCollection categoriesFor: #basicIndexOfSubCollection:startingAt:!private!searching! !
 !SequenceableCollection categoriesFor: #before:!public!searching! !
 !SequenceableCollection categoriesFor: #before:ifAbsent:!public!searching! !
 !SequenceableCollection categoriesFor: #beginsWith:!comparing!public! !
@@ -1274,8 +1320,11 @@ writeStream
 !SequenceableCollection categoriesFor: #copyReplaceFrom:to:withObject:!copying!public! !
 !SequenceableCollection categoriesFor: #copyReplacing:withObject:!copying!public! !
 !SequenceableCollection categoriesFor: #copyWith:!copying!public! !
+!SequenceableCollection categoriesFor: #copyWith:atIndex:!copying!public! !
 !SequenceableCollection categoriesFor: #copyWithout:!copying!public! !
 !SequenceableCollection categoriesFor: #copyWithoutAll:!copying!public! !
+!SequenceableCollection categoriesFor: #copyWithoutIndex:!copying!public! !
+!SequenceableCollection categoriesFor: #decodeAt:!encode/decode!private! !
 !SequenceableCollection categoriesFor: #decodeFrom:upTo:!encode/decode!private! !
 !SequenceableCollection categoriesFor: #decodeNextAvailable:from:!encode/decode!private! !
 !SequenceableCollection categoriesFor: #decodeNextFrom:!encode/decode!private! !
@@ -1286,11 +1335,13 @@ writeStream
 !SequenceableCollection categoriesFor: #encodeOn:next:putAll:startingAt:!encode/decode!private! !
 !SequenceableCollection categoriesFor: #encodeOn:nextPutAll:!encode/decode!private! !
 !SequenceableCollection categoriesFor: #encodeOn:put:!encode/decode!private! !
-!SequenceableCollection categoriesFor: #encoding!constants!encode/decode!private! !
+!SequenceableCollection categoriesFor: #encoding!constants!public! !
 !SequenceableCollection categoriesFor: #endsWith:!comparing!public! !
+!SequenceableCollection categoriesFor: #errorCollectionsOfDifferentSizes!enumerating!public! !
 !SequenceableCollection categoriesFor: #errorFirstObject:!exceptions!private! !
 !SequenceableCollection categoriesFor: #errorLastObject:!exceptions!private! !
 !SequenceableCollection categoriesFor: #errorValueNotFound:!exceptions!private! !
+!SequenceableCollection categoriesFor: #expandMacrosIn:!double dispatch!private! !
 !SequenceableCollection categoriesFor: #fifth!accessing!public! !
 !SequenceableCollection categoriesFor: #findFirst:!public!searching! !
 !SequenceableCollection categoriesFor: #findLast:!public!searching! !
@@ -1345,6 +1396,7 @@ writeStream
 !SequenceableCollection categoriesFor: #replaceFrom:to:withObject:!public!replacing! !
 !SequenceableCollection categoriesFor: #resize:!mutating!private! !
 !SequenceableCollection categoriesFor: #reverse!copying!public! !
+!SequenceableCollection categoriesFor: #reversedFrom:to:!copying!public! !
 !SequenceableCollection categoriesFor: #reverseDo:!enumerating!public! !
 !SequenceableCollection categoriesFor: #runsAndValuesDo:!enumerating!public! !
 !SequenceableCollection categoriesFor: #second!accessing!public! !
@@ -1365,8 +1417,7 @@ SequenceableCollection methodProtocol: #sequencedReadableCollection attributes: 
 !SequenceableCollection class methodsFor!
 
 binarySearch: aSequenceableCollection for: anObject using: searchBlock 
-	"Private - Answer the index at which anObject is located within aSequenceableCollection using a binary chop
-	search based on searchBlock"
+	"Search aSequenceableCollection, which must be sorted, for anObject using a binary chop search based on the <dyadicValuable>, searchBlock. The search block needs to express the same sort order as that used to sort the collection or the result will be incorrect. If the collection is ordered in ascending order, then use #<= comparison, or #>= for descending order. If anObject is in the collection, then the answer will be the index of the last occurrence of anObject + 1. If anObject is not in the collection, then the answer will be 1. This is most useful to find an insertion point."
 
 	| index low high |
 	low := 1.
@@ -1391,11 +1442,16 @@ emitEncodingMarkerOn: aPositionableStream
 
 	!
 
+encoding
+	"Answer a <Symbol> naming the encoding of instances of the receiver, which will be one of #binary, #pointers, #ansi, #utf8, #utf16le or #utf32."
+
+	^#pointers!
+
 new: anInteger streamContents: aMonadicValuable
 	| stream |
 	stream := self writeStream: anInteger.
 	aMonadicValuable value: stream.
-	^stream contents!
+	^stream grabContents!
 
 ofSize: anInteger
 	"Private - Answer a new instance of the receiver with anInteger nil elements.
@@ -1410,7 +1466,7 @@ ofSize: anInteger
 	^self new: anInteger!
 
 streamContents: aMonadicValuable
-	^self new: 100 streamContents: aMonadicValuable!
+	^self new: 64 streamContents: aMonadicValuable!
 
 writeStream
 	"Answer a WriteStream on the a new empty instance of the receiver."
@@ -1425,6 +1481,7 @@ writeStream: anInteger
 !SequenceableCollection class categoriesFor: #binarySearch:for:using:!public!searching! !
 !SequenceableCollection class categoriesFor: #defaultSortAlgorithm!instance creation!public! !
 !SequenceableCollection class categoriesFor: #emitEncodingMarkerOn:!encode/decode!private! !
+!SequenceableCollection class categoriesFor: #encoding!constants!public! !
 !SequenceableCollection class categoriesFor: #new:streamContents:!public!stream creation! !
 !SequenceableCollection class categoriesFor: #ofSize:!instance creation!private! !
 !SequenceableCollection class categoriesFor: #streamContents:!public!stream creation! !

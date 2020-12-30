@@ -90,11 +90,11 @@ associations
 	self associationsDo: [:assoc | answer add: assoc].
 	^answer!
 
-associationsDo: operation
-	"Evaluate the monadic valuable, operation, for each of the receiver's 
-	key/value mappings."
+associationsDo: aMonadicValuable
+	"Evaluate the <monadicValuable> argument, for each of the receiver's key/value mappings."
 
-	super do: [:assoc | operation value: assoc]!
+	1 to: self basicSize
+		do: [:i | (self basicAt: i) ifNotNil: [:element | aMonadicValuable value: element]]!
 
 associationsDo: aMonadicValuable separatedBy: aNiladicValuable 
 	"Evaluate the <monadicValuable> operation argument for each of the 
@@ -195,7 +195,7 @@ changeKey: key to: newKey
 	| assoc |
 	assoc := self associationAt: key.
 	self removeKey: key.
-	assoc whileMutableDo: [assoc key: newKey].
+	assoc setKey: newKey.
 	"We want to preserve the association of the element we're renaming, so we must
 	 remove any existing element with the same name"
 	self removeKey: newKey ifAbsent: [].

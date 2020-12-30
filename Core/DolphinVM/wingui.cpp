@@ -23,7 +23,7 @@ Interpreter/Windows GUI interface functions
 
 #ifdef _CONSOLE
 
-void __stdcall DolphinFatalExit(int exitCode, const wchar_t* msg)
+__declspec(noreturn) void __stdcall DolphinFatalExit(int exitCode, const wchar_t* msg)
 {
 	int result = fwprintf(stderr, L"%s\n", msg);
 	FatalExit(exitCode);
@@ -174,9 +174,11 @@ LRESULT CALLBACK Interpreter::DolphinDlgProc(HWND /*hWnd*/, UINT /*uMsg*/, WPARA
 int __stdcall DolphinMessage(UINT flags, const wchar_t* msg)
 {
 	HMODULE hExe = GetModuleHandle(NULL);
-	std::wstring appTitle = GetResourceString(hExe, IDS_APP_TITLE);
-	if (!appTitle.empty())
+	int length;
+	LPCWSTR szAppTitle = GetResourceString(hExe, IDS_APP_TITLE, length);
+	if (szAppTitle != nullptr)
 	{
+		std::wstring appTitle(szAppTitle, length);
 		return ::MessageBoxW(NULL, msg, appTitle.c_str(), flags | MB_TASKMODAL);
 	}
 	else
@@ -208,7 +210,7 @@ void Interpreter::GuiShutdown()
 	hHookOldCbtFilter = NULL;
 }
 
-void __stdcall DolphinFatalExit(int /*exitCode*/, const wchar_t* msg)
+__declspec(noreturn) void __stdcall DolphinFatalExit(int /*exitCode*/, const wchar_t* msg)
 {
 	FatalAppExitW(0, msg);
 }

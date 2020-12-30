@@ -5,20 +5,27 @@ DolphinTest subclass: #DBTest
 	classVariableNames: ''
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
-DBTest guid: (GUID fromString: '{b514fd7b-4e03-452f-8178-6ec50e9d670a}')!
+DBTest guid: (GUID fromString: '{13e9a82d-7aae-43aa-864a-a15706b23ae3}')!
+DBTest isAbstract: true!
 DBTest comment: ''!
 !DBTest categoriesForClass!Unclassified! !
 !DBTest methodsFor!
 
-connectString
-"Private - 	^'DSN=NWindSQL'."
-	^'DSN=NWind'!
+databaseResource
+	^AccessNorthwindDB current !
 
 employeeNames
 	^#('Davolio' 'Fuller' 'Leverling' 'Peacock' 'Buchanan' 'Suyama' 'King' 'Callahan' 'Dodsworth')!
 
 field: aString fromRow: aDBRow 
 	^aDBRow at: aString!
+
+setUp
+	connection := self databaseResource newConnection.
+	self skipUnless: [connection notNil]!
+
+tearDown
+	connection ifNotNil: [:cnxn | cnxn close]!
 
 testCollect
 	| names rs |
@@ -40,18 +47,11 @@ testIsEmpty
 	self assert: results isEmpty.
 	results := connection query: 'select CategoryID, CategoryName from categories where CategoryID = 1'.
 	self deny: results isEmpty! !
-!DBTest categoriesFor: #connectString!constants!private! !
-!DBTest categoriesFor: #employeeNames!public!unit tests! !
-!DBTest categoriesFor: #field:fromRow:!public!unit tests! !
+!DBTest categoriesFor: #databaseResource!helpers!private! !
+!DBTest categoriesFor: #employeeNames!helpers!private! !
+!DBTest categoriesFor: #field:fromRow:!helpers!private! !
+!DBTest categoriesFor: #setUp!public!running! !
+!DBTest categoriesFor: #tearDown!public!running! !
 !DBTest categoriesFor: #testCollect!public!unit tests! !
 !DBTest categoriesFor: #testIsEmpty!public!unit tests! !
-
-!DBTest class methodsFor!
-
-isAbstract
-	"Override to true if a TestCase subclass is Abstract and should not have
-	TestCase instances built from it"
-
-	^self == ##(self)! !
-!DBTest class categoriesFor: #isAbstract!public!Testing! !
 

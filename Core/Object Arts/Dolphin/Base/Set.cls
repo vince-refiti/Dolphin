@@ -195,7 +195,7 @@ find: target ifAbsent: exceptionHandler
 
 	^(self basicAt: (self findElementOrNil: target)) ifNil: [exceptionHandler value]!
 
-findElementOrNil: anObject 
+findElementOrNil: anObject
 	"Private - Answer the index of the given object in the receiver, or, if not found,
 	the index of the first empty slot including and after that to which the object hashes.
 	Implementation Note: This implementation is tuned to give the best performance on the
@@ -204,11 +204,10 @@ findElementOrNil: anObject
 	average performance suffers from the extra temporaries used."
 
 	| capacity index |
-	capacity := self basicSize.
-	index := self hash: anObject max: capacity.
+	index := anObject hash \\ (capacity := self basicSize) + 1.
 	
 	[| element |
-	(element := self basicAt: index) isNil or: [anObject = element]] 
+	(element := self basicAt: index) isNil or: [anObject = element]]
 			whileFalse: [index := index \\ capacity + 1].
 	^index!
 
@@ -225,13 +224,6 @@ fixCollisionsFrom: index
 		whileFalse:  [ | hashIndex |
 			hashIndex := self findElementOrNil: element.
 			(self basicAt: hashIndex) isNil ifTrue: [self moveFrom: slotIndex to: hashIndex]]!
-
-fullCheck
-	"Private - Check the load factor in the receiver, and grow if exceeded."
-
-	"Slop calculation should be kept in sync with Set class>>sizeFor:"
-
-	tally * 3 > (self basicSize * 2) ifTrue: [self grow]!
 
 grow
 	"Private - Expand the receiver to a capacity suitable for holding more elements"
@@ -264,6 +256,18 @@ initialize
 
 	tally := 0
 !
+
+isHealthy
+	"Test that object hashes match their positions stored in set's array,
+	answer true if everything ok, false otherwise
+	
+	Set allSubInstances select: [:badSet |
+		badSet isHealthy not ]
+	"
+
+	1 to: self basicSize
+		do: [:i | (self basicAt: i) ifNotNil: [:element | (self findElementOrNil: element) == i ifFalse: [^false]]].
+	^true!
 
 moveFrom: fromIndex to: toIndex
 	"Private - Destructively move the element at index, fromIndex, over
@@ -298,8 +302,7 @@ privateAt: index put: newObject
 	invariant required by the search algorithm)."
 
 	self basicAt: index put: newObject.
-	tally := tally + 1.
-	self fullCheck.
+	(tally := tally + 1) * 3 > (self basicSize * 2) ifTrue: [self grow].
 	^newObject!
 
 rehash
@@ -409,12 +412,12 @@ uncheckedAdd: newObject
 !Set categoriesFor: #find:ifAbsent:!public!searching! !
 !Set categoriesFor: #findElementOrNil:!private!searching! !
 !Set categoriesFor: #fixCollisionsFrom:!private!removing! !
-!Set categoriesFor: #fullCheck!helpers!private! !
 !Set categoriesFor: #grow!helpers!private! !
 !Set categoriesFor: #hash:max:!private!searching! !
 !Set categoriesFor: #identityIncludes:!public!searching! !
 !Set categoriesFor: #includes:!public!searching! !
 !Set categoriesFor: #initialize!initializing!private! !
+!Set categoriesFor: #isHealthy!public! !
 !Set categoriesFor: #moveFrom:to:!private!removing! !
 !Set categoriesFor: #occurrencesOf:!public!searching! !
 !Set categoriesFor: #postResize:!adding!private! !

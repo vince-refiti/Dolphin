@@ -14,6 +14,7 @@
 #pragma once
 
 #include "STObject.h"
+#include <cstdint>
 
 // Declare forward references
 namespace ST
@@ -21,10 +22,12 @@ namespace ST
 	class ExternalStructure;
 	class ExternalAddress;
 	class ExternalHandle;
+	class ExternalLibrary;
 }
 typedef TOTE<ST::ExternalStructure> StructureOTE;
 typedef TOTE<ST::ExternalAddress> AddressOTE;
 typedef TOTE<ST::ExternalHandle> HandleOTE;
+typedef TOTE<ST::ExternalLibrary> LibraryOTE;
 
 struct COMThunk
 {
@@ -103,6 +106,13 @@ namespace ST
 		DescriptorOTE* m_descriptor;	// Byte array of descriptor bytes
 		OTE* m_literals[];
 	};
+
+	class ExternalLibrary : public Object
+	{
+	public:
+		HandleOTE* m_handle;
+	};
+
 
 	///////////////////////////////////////////////////////////////////////////////
 

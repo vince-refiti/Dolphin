@@ -112,19 +112,20 @@ calcRectangleFromClientRectangle: aRectangle
 		dwExStyle: self extendedStyle.
 	^rect asRectangle!
 
-calculateExtent: aLayoutContext 
-	"Private - Calculate an extent for the receiver that would allow it to display all the text
-	that it currently contains on a single line."
+calculateExtent: aLayoutContext
+	"Private - Calculate an extent for the receiver that would allow it to display all the text that it currently contains on a single line."
 
-	| canvas extent leading margins text |
+	| canvas extent margins text |
 	canvas := self canvas.
 	canvas font: self actualFont.
 	text := self plainText.
-	extent := canvas textExtent: (text isEmpty ifTrue: ['.'] ifFalse: [text]).
-	leading := canvas textMetrics tmExternalLeading.
+	extent := canvas
+				textExtent: (text isEmpty ifTrue: ['.'] ifFalse: [text])
+				width: 0
+				flags: ##(DT_SINGLELINE | DT_EDITCONTROL | DT_NOPREFIX | DT_EXPANDTABS | DT_EXTERNALLEADING).
 	canvas free.
 	margins := self marginWidths.
-	^self calcExtentFromClientExtent: extent + ((margins first + margins last) @ leading)!
+	^self calcExtentFromClientExtent: extent + ((margins first + margins last) @ 0)!
 
 canHScroll
 	"Answer true if the receiver is in horizontal scrolling mode"
@@ -149,7 +150,7 @@ canPaste
 	"Answer whether the window can paste from the current contents of
 	the clipboard."
 
-	^self isReadOnly not and: [UserLibrary default isClipboardFormatAvailable: CF_TEXT]!
+	^self isReadOnly not and: [UserLibrary default isClipboardFormatAvailable: CF_UNICODETEXT]!
 
 canRedo
 	"Answer whether the window can redo the last undone operation."
@@ -250,6 +251,9 @@ cutSelection
 
 defaultSelectionRange
 	^1 to: 0!
+
+defaultTextLimit
+	^30000!
 
 defaultWindowExStyle
 	"Private - Answer the default extended window creation style.
@@ -833,8 +837,7 @@ positionForKeyboardContextMenu
 	This should be based on the 'current selection', whatever that means in the context of the
 	receiver. Should be overridden by subclasses as appropriate."
 
-	^(self mapPoint: (self positionOfChar: self caretPosition) to: self class desktop) + (0@20)
-!
+	^(self mapPointToScreen: (self positionOfChar: self caretPosition)) + (0 @ 20)!
 
 positionOfChar: anInteger 
 	"Map the one-based index of a character in the receiver to its client co-ordinates
@@ -1103,7 +1106,7 @@ state
 								selector: #cueBanner:
 								argument: cue)]].
 	limit := self textLimit.
-	limit = 30000
+	limit = self defaultTextLimit
 		ifFalse: 
 			[state add: (MessageSend
 						receiver: self
@@ -1302,6 +1305,7 @@ wmSetFocus: message wParam: wParam lParam: lParam
 !TextEdit categoriesFor: #cueBanner:!accessing!public! !
 !TextEdit categoriesFor: #cutSelection!clipboard operations!commands!public! !
 !TextEdit categoriesFor: #defaultSelectionRange!constants!private! !
+!TextEdit categoriesFor: #defaultTextLimit!constants!private! !
 !TextEdit categoriesFor: #defaultWindowExStyle!constants!private! !
 !TextEdit categoriesFor: #dispatchRegistered:wParam:lParam:!dispatching!private! !
 !TextEdit categoriesFor: #displayValue!private!updating! !

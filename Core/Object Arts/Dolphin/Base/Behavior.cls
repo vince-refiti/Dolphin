@@ -82,14 +82,19 @@ addSelector: aSymbol withMethod: aCompiledMethod
 addSubclass: aClass
 	"Private - Include the argument, aClass, as a subclass of the receiver."
 
-	| subs |
+	| subs count index |
 	aClass superclass == self
 		ifFalse: [^self error: ('I am not <1p>''s superclass' expandMacrosWith: aClass)].
 	subs := self subclasses.
-	(subs identityIndexOf: aClass) == 0
+	count := subs size.
+	count == 0
 		ifTrue: 
-			["Maintain the array in sorted order as saves sorting on access"
-			subclasses := (subs copyWith: aClass) sort]!
+			[subclasses := {aClass}.
+			^self].
+	"Maintain the array in sorted order as saves sorting on access - speed is important to minimize class creation time"
+	index := subs binarySearchFor: aClass using: [:a :b | a name <=> b name <= 0].
+	(index > 1 and: [(subs at: index - 1) == aClass]) ifTrue: [^self].
+	subclasses := subs copyWith: aClass atIndex: index!
 
 addToSuper
 	"Private - Add the receiver to its superclasses' subclass collection."
@@ -428,7 +433,7 @@ fullBindingFor: aString
 	(aString identityIncludes: $.)
 		ifTrue: 
 			[| parts env count |
-			parts := aString subStrings: $..
+			parts := $. split: aString.
 			"Fully qualified name always starts in Smalltalk"
 			env := Smalltalk.
 			count := parts size.

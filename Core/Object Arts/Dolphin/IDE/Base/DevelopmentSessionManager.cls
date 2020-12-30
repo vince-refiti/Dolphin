@@ -458,7 +458,7 @@ productDetails
 	^productDetails!
 
 productDetails: anArray
-	"Private - Sets the receiver's product details to a five element<Array> 
+	"Private - Sets the receiver's product details to an eight element<Array> 
 	describing this version of the development environment"
 
 	productDetails := anArray.
@@ -662,6 +662,7 @@ tertiaryStartup
 
 	super tertiaryStartup.
 
+	self disableWindowGhosting.
 	"Flush any output accumulated in the transcript buffer during startup."
 	TranscriptShell current flush.
 	self mainShellClass onStartup.
@@ -758,7 +759,7 @@ versionString
 !DevelopmentSessionManager categoriesFor: #productDetails!accessing!private!product! !
 !DevelopmentSessionManager categoriesFor: #productDetails:!accessing!private!product! !
 !DevelopmentSessionManager categoriesFor: #productMajorVersion!accessing!product!public! !
-!DevelopmentSessionManager categoriesFor: #productRegistryKey!accessing!private!product! !
+!DevelopmentSessionManager categoriesFor: #productRegistryKey!accessing!product!public! !
 !DevelopmentSessionManager categoriesFor: #productRegistryVersion!accessing!private!product! !
 !DevelopmentSessionManager categoriesFor: #productVersion!accessing!product!public! !
 !DevelopmentSessionManager categoriesFor: #productVersionSpecial!accessing!product!public! !

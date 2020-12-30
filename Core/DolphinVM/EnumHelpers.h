@@ -1,9 +1,10 @@
 #pragma once
+#include <type_traits>
 
 template<typename T> struct EnableBitOperators : std::false_type { };
 
 template<typename T>
-typename std::enable_if<EnableBitOperators<T>::value, T>::type
+typename std::enable_if<EnableBitOperators<T>::value, T>::type constexpr
 operator |(const T lhs, const T rhs)
 {
 	using underlying = typename std::underlying_type<T>::type;
@@ -14,7 +15,7 @@ operator |(const T lhs, const T rhs)
 }
 
 template<typename T>
-typename std::enable_if<EnableBitOperators<T>::value, T>::type
+typename std::enable_if<EnableBitOperators<T>::value, T>::type constexpr
 operator &(const T lhs, const T rhs)
 {
 	using underlying = typename std::underlying_type<T>::type;
@@ -25,7 +26,7 @@ operator &(const T lhs, const T rhs)
 }
 
 template<typename T>
-typename std::enable_if<EnableBitOperators<T>::value, T>::type
+typename std::enable_if<EnableBitOperators<T>::value, T>::type constexpr
 operator ~(const T rhs)
 {
 	using underlying = typename std::underlying_type<T>::type;
@@ -35,7 +36,7 @@ operator ~(const T rhs)
 }
 
 template<typename T>
-typename std::enable_if<EnableBitOperators<T>::value, bool>::type
+typename std::enable_if<EnableBitOperators<T>::value, bool>::type constexpr
 operator !(const T rhs)
 {
 	using underlying = typename std::underlying_type<T>::type;
@@ -107,11 +108,10 @@ operator-=(T& x, const I offset)
 {
 	using underlying = typename std::underlying_type<T>::type;
 	underlying r = static_cast<underlying>(x) - offset;
-	_ASSERTE(r >= static_cast<underlying>(T::npos));
 	return x = static_cast<T>(r);
 }
 
-template<typename T, typename I>
+template<typename T, typename I> constexpr
 const typename std::enable_if<EnableIntOperators<T>::value, T>::type
 operator+(const T x, const I y)
 {
@@ -119,13 +119,12 @@ operator+(const T x, const I y)
 	return static_cast<T>(static_cast<underlying>(x) + static_cast<underlying>(y));
 }
 
-template<typename T, typename I>
+template<typename T, typename I> constexpr
 const typename std::enable_if<EnableIntOperators<T>::value, T>::type
 operator-(const T x, const I y)
 {
 	using underlying = typename std::underlying_type<T>::type;
 	underlying r = static_cast<underlying>(x) - static_cast<underlying>(y);
-	_ASSERTE(r >= static_cast<underlying>(T::npos));
 	return static_cast<T>(r);
 }
 

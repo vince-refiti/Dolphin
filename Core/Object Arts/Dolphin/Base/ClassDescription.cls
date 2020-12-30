@@ -17,11 +17,9 @@ Instance Variables:
 !ClassDescription methodsFor!
 
 <= aClassDescription
-	"Answer whether the receiver is 'less than' aClassDescription.
-	By implementing this method, we enable Class objects to be stored
-	in a SortedCollection with the default sort block."
+	"Answer whether the receiver should sort before the argument, e.g. in a SortedCollection using the default sort block."
 
-	^self name <= aClassDescription name!
+	^self name <=> aClassDescription name <= 0!
 
 >> aSymbol
 	^self compiledMethodAt: aSymbol!
@@ -202,7 +200,7 @@ comment
 comment: aString
 	"Set the class comment for the receiver to aString"
 
-	^self subclassResponsibility!
+	self subclassResponsibility!
 
 compile: aString categories: aCollection
 	"Compile the <readableString> argument, aString,  as source code in the context of the receiver
@@ -402,9 +400,7 @@ instVarNames
 
 	instanceVariables isNil ifTrue: [^#()].
 	^instanceVariables isString
-		ifTrue: 
-			["N.B. This assumes that the names in the instance variable string are separated by exactly one space"
-			instanceVariables subStrings: $\x20]
+		ifTrue: [($\x20 split: instanceVariables) reject: [:each | each isEmpty]]
 		ifFalse: [instanceVariables]!
 
 isChanged
@@ -692,10 +688,9 @@ resourceSelectorsDo: aMonadicValuable
 		selectorsDo: [:each | (each beginsWith: prefix) ifTrue: [aMonadicValuable value: each]]!
 
 selectorsInCategory: category
-	"Answer an <Collection> of selector <Symbol>s, of the receiver's methods 
-	which are included in the <methodCategory>, category."
+	"Answer a <Collection> of selector <Symbol>s, of the receiver's methods which are included in the <methodCategory>, category."
 
-	^self methodsCatalogue at: category ifAbsent: [#()]!
+	^methodsCatalogue ifNil: [#()] ifNotNil: [(methodsCatalogue lookup: category) ifNil: [#()]]!
 
 setInstanceVariables: aCollection
 	"Private - Set the instance variable string of the receiver to be the list

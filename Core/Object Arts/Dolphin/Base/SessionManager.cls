@@ -422,6 +422,7 @@ initializeFromSessionManager: oldSessionManager
 	imagePath := oldSessionManager imagePath.
 	stdioStreams := oldSessionManager basicStdioStreams.
 	startupArgs := oldSessionManager startupArgs.
+	events := oldSessionManager getEvents.
 	^self!
 
 inputState
@@ -659,14 +660,6 @@ onQuit: anInteger
 	self trigger: #quitSessionRequested.
 	self queryEndSession ifTrue: [self quit: anInteger]!
 
-onSettingChanged: aWindowsEvent
-	"Private - A system setting has been changed. This could be any of a wide range of things from a theme change,
-	regional settings, even policy. The notifications come in thick and fast because they are sent to every top-level
-	window. We consolidate them by queuing them up for coalescing any that arrive within a 1-second window."
-
-	settingsChanged add: {Utf16String fromAddress: aWindowsEvent lParam. aWindowsEvent wParam}.
-	inputState msgWindow setTimer: SettingsChangeTimerId interval: 1000!
-
 onStartup: args
 	"Initialize the receiver immediately following system startup.
 	This is the main system initialization routine, and is responsible
@@ -851,6 +844,19 @@ primSnapshot: fileName backup: aBoolean type: typeInteger maxObjects: maxInteger
 
 	<primitive: 97>
 	^self error: 'Dolphin was unable to save the image.'!
+
+productName
+	"Answer the product name from the receiver's <VersionInfo> for this session, extracted from the host executable."
+
+	^self versionInfo productName
+!
+
+productRegistryKey
+	"Answers the <readableString> registry key of this product."
+
+	"This should be overridden in application subclasses that want something more sophisticated than this simple default, for example to include organisation name."
+
+	^'Software\' , self productName!
 
 queryEndSession
 	"Fire off an event to enquire of observers whether they object to the end of this session.
@@ -1235,7 +1241,6 @@ windowsDirectory
 !SessionManager categoriesFor: #onPreSaveImage!event handling!private! !
 !SessionManager categoriesFor: #onQueryWindowsShutdown!event handling!public! !
 !SessionManager categoriesFor: #onQuit:!event handling!public! !
-!SessionManager categoriesFor: #onSettingChanged:!event handling!private! !
 !SessionManager categoriesFor: #onStartup:!event handling!public! !
 !SessionManager categoriesFor: #onTimeChanged:!event handling!private! !
 !SessionManager categoriesFor: #onTimer:!event handling!private! !
@@ -1258,6 +1263,8 @@ windowsDirectory
 !SessionManager categoriesFor: #primaryStartup!operations-startup!public! !
 !SessionManager categoriesFor: #primQuit:!operations-shutdown!private! !
 !SessionManager categoriesFor: #primSnapshot:backup:type:maxObjects:!operations-saving!private! !
+!SessionManager categoriesFor: #productName!accessing-version!public! !
+!SessionManager categoriesFor: #productRegistryKey!accessing!product!public! !
 !SessionManager categoriesFor: #queryEndSession!event handling!public! !
 !SessionManager categoriesFor: #quit!operations-shutdown!public! !
 !SessionManager categoriesFor: #quit:!operations-shutdown!private! !

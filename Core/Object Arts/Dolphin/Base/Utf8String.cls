@@ -27,10 +27,14 @@ To better understand the full implications of the compromises made in introducin
 !Utf8String methodsFor!
 
 _beginsString: aString
-	^(CRTLibrary default
-		strncmp: aString asUtf8String
-		string2: self
-		count: self size) == 0!
+	| size comperand |
+	comperand := aString asUtf8String.
+	size := self size.
+	^size <= comperand size
+		and: [(CRTLibrary default
+				memcmp: comperand
+				buf2: self
+				count: size) == 0]!
 
 asLowercase
 	"Answer a <readableString> which is a copy of the receiver but with the contents converted
@@ -55,6 +59,19 @@ asUtf8String
 
 	^self!
 
+before: aCharacter ifAbsent: aNiladicValuable
+	"Answer the <Character> representing the code point before the <Character> argument, or if not present the result of evaluating the <niladicValuable> argument."
+
+	| index |
+	index := self indexOf: aCharacter.
+	index == 0 ifTrue: [^aNiladicValuable value].
+	index == 1 ifTrue: [^self errorFirstObject: aCharacter].
+	
+	[index := index - 1.
+	((self basicAt: index) bitAnd: Character.Utf8SurrogateMask) == 16r80]
+			whileTrue.
+	^self decodeAt: index!
+
 bom 
 	^Bom!
 
@@ -64,6 +81,76 @@ copyToBuffer: anAddress ofSize: anInteger
 		bufferSize: anInteger
 		strSource: self
 		count: CRTConstants._TRUNCATE!
+
+countElements
+	| length |
+	length := 0.
+	"Count the code-units that are not trailing bytes"
+	1 to: self size
+		do: [:i | ((self basicAt: i) bitAnd: Character.Utf8SurrogateMask) == 16r80 ifFalse: [length := length + 1]].
+	^length!
+
+decodeAt: anInteger
+	"Private - Read the <Character> with code point in the receiver's encoding starting with the code unit at the specified index. Raise an error if the indexed code unit is not the first in a character. If the character encoding is invalid or incomplete, return the replacement character. Intolerance of indexing errors is intended to help detect logic errors in algorithms working with multi-byte strings, although this may also occur in incorrectly encoded data which is otherwise tolerated by returning the replacement character."
+
+	| c c2 size codePoint min |
+	c := self basicAt: anInteger.
+	c < 16r80
+		ifTrue: 
+			["Ascii char"
+			^Character.CharacterSet at: c + 1].
+
+	"Lead byte?"
+	c < 16rC0
+		ifTrue: 
+			["On a continution byte so in the middle of a character, which is invalid"
+			^self errorIntraCharacterIndex: anInteger].
+	"At least 2 byte character"
+	size := self size.
+	anInteger < size ifFalse: [^Character.Utf8Default].
+	c2 := self basicAt: anInteger + 1.
+	(c2 bitAnd: 16rC0) == 16r80
+		ifTrue: 
+			[codePoint := ((c bitAnd: 16r1F) bitShift: 6) bitOr: (c2 bitAnd: 16r3F).
+			min := 16r80]
+		ifFalse: 
+			["Invalid1st continuation"
+			^Character.Utf8Default].
+	c >= 16rE0
+		ifTrue: 
+			[| c3 |
+			"At least a 3-byte character"
+			anInteger + 2 > size ifTrue: [^Character.Utf8Default].
+			c3 := self basicAt: anInteger + 2.
+			(c3 bitAnd: 16rC0) == 16r80
+				ifTrue: 
+					[codePoint := ((codePoint bitAnd: 16r3FF) bitShift: 6) bitOr: (c3 bitAnd: 16r3F).
+					min := 16r800]
+				ifFalse: 
+					["Invalid 2nd continuation"
+					^Character.Utf8Default].
+			c >= 16rF0
+				ifTrue: 
+					[| c4 |
+					"4-byte character"
+					anInteger + 3 > size ifTrue: [^Character.Utf8Default].
+					c4 := self basicAt: anInteger + 3.
+					(c4 bitAnd: 16rC0) == 16r80
+						ifTrue: 
+							[codePoint := ((codePoint bitAnd: 16r7FFF) bitShift: 6) bitOr: (c4 bitAnd: 16r3F).
+							min := 16r10000]
+						ifFalse: 
+							["Invalid 3rd continuation"
+							^Character.Utf8Default].
+					c >= 16rF8
+						ifTrue: 
+							["5 or 6-byte character (not currently possible - only 4 bytes required for max Unicode char"
+							^Character.Utf8Default]]].
+	codePoint < min
+		ifTrue: 
+			["Overlong encoding"
+			^Character.Utf8Default].
+	^Character codePoint: codePoint ifInvalid: [Character.Utf8Default]!
 
 decodeNextFrom: aReadStream
 	"Private - Read the next <Character> in the receiver's encoding from the <ReadStream> argument ."
@@ -94,7 +181,7 @@ decodeNextFrom: aReadStream
 									| codePoint |
 									(c2 bitAnd: 16rC0) == 16r80
 										ifTrue: 
-											[codePoint := (c bitAnd: 16r1F) << 6 bitOr: (c2 bitAnd: 16r3F).
+											[codePoint := ((c bitAnd: 16r1F) bitShift: 6) bitOr: (c2 bitAnd: 16r3F).
 											min := 16r80]
 										ifFalse: 
 											["Invalid1st continuation"
@@ -109,7 +196,7 @@ decodeNextFrom: aReadStream
 													[:c3 |
 													(c3 bitAnd: 16rC0) == 16r80
 														ifTrue: 
-															[codePoint := (codePoint bitAnd: 16r3FF) << 6 bitOr: (c3 bitAnd: 16r3F).
+															[codePoint := ((codePoint bitAnd: 16r3FF) bitShift: 6) bitOr: (c3 bitAnd: 16r3F).
 															min := 16r800]
 														ifFalse: 
 															["Invalid 2nd continuation"
@@ -124,7 +211,7 @@ decodeNextFrom: aReadStream
 																	[:c4 |
 																	(c4 bitAnd: 16rC0) == 16r80
 																		ifTrue: 
-																			[codePoint := (codePoint bitAnd: 16r7FFF) << 6 bitOr: (c4 bitAnd: 16r3F).
+																			[codePoint := ((codePoint bitAnd: 16r7FFF) bitShift: 6) bitOr: (c4 bitAnd: 16r3F).
 																			min := 16r10000]
 																		ifFalse: 
 																			["Invalid 3rd continuation"
@@ -139,7 +226,7 @@ decodeNextFrom: aReadStream
 																			[:c5 |
 																			(c5 bitAnd: 16rC0) == 16r80
 																				ifTrue: 
-																					[codePoint := (codePoint bitAnd: 16rFFFFF) << 6 bitOr: (c5 bitAnd: 16r3F).
+																					[codePoint := ((codePoint bitAnd: 16rFFFFF) bitShift: 6) bitOr: (c5 bitAnd: 16r3F).
 																					min := 16r200000]
 																				ifFalse: 
 																					["Invalid 4th continuation"
@@ -154,7 +241,7 @@ decodeNextFrom: aReadStream
 																					[:c6 |
 																					(c6 bitAnd: 16rC0) == 16r80
 																						ifTrue: 
-																							[codePoint := (codePoint bitAnd: 16r1FFFFFF) << 6 bitOr: (c6 bitAnd: 16r3F).
+																							[codePoint := ((codePoint bitAnd: 16r1FFFFFF) bitShift: 6) bitOr: (c6 bitAnd: 16r3F).
 																							min := 16r4000000]
 																						ifFalse: 
 																							["Invalid 5th continuation"
@@ -208,8 +295,24 @@ encodedAt: anInteger put: aCharacter
 									anInteger + 3]
 								ifFalse: [self class errorInvalidCodePoint: codePoint]]]]!
 
+encodedSizeAt: anInteger
+	"Private - Answer the <integer> number of code units occuppied by the <Character> whose first code unit is at the specified index in the receiver. Throw an error if the code unit at anInteger is not either an ASCII code point or a UTF-8 lead surrogate"
+
+	| c |
+	c := self basicAt: anInteger.
+	^c >= 16rC0
+		ifTrue: [c >= 16rE0 ifTrue: [c >= 16rF0 ifTrue: [4] ifFalse: [3]] ifFalse: [2]]
+		ifFalse: 
+			[c < 16r80
+				ifTrue: 
+					["Ascii char"
+					1]
+				ifFalse: 
+					["On a continution byte so in the middle of a character, which is invalid"
+					self errorIntraCharacterIndex: anInteger]]!
+
 encodedSizeOf: aCharacter
-	"Private - Answer the number of basic slots occupied by the argument when encoded in the receiver."
+	"Private - Answer the number of basic slots occupied by the argument when encoded in the UTF-8 encoding."
 
 	^aCharacter isUtf8
 		ifTrue: [1]
@@ -268,47 +371,39 @@ encodeOn: aPuttableStream put: aCharacter
 										basicNextPut: (16r80 bitOr: (codePoint bitAnd: 16r3F))]
 								ifFalse: [self class errorInvalidCodePoint: codePoint]]]]!
 
-length
-	"Answer the number of Unicode code-points in the receiver."
-
-	| length |
-	length := 0.
-	"Count the code-units that are not trailing bytes"
-	1 to: self size
-		do: [:i | ((self basicAt: i) bitAnd: Character.Utf8SurrogateMask) == 16r80 ifFalse: [length := length + 1]].
-	^length!
+isLeadCodeUnit: anInteger
+	^anInteger < 16r80 or: [anInteger >= 16rC0]!
 
 maxEncoding
 	^4!
 
-nextIndexOf: anElement from: start to: stop
-	"Answer the index of the next occurrence of anElement in the receiver between 
-	startIndex and stopIndex inclusive. If there are no such occurrences, answer 0."
-
-	^anElement class == Character
+nextIndexOfCharacter: aCharacter from: startInteger to: stopInteger
+	| codePoint stream i |
+	stopInteger > self size ifTrue: [self errorSubscriptBounds: stopInteger].
+	codePoint := aCharacter codePoint.
+	(codePoint < 16r80 or: [aCharacter isUtf8Surrogate])
 		ifTrue: 
-			[anElement isAscii
-				ifTrue: 
-					[self
-						nextIdentityIndexOf: anElement
-						from: start
-						to: stop]
-				ifFalse: 
-					[| found |
-					found := self indexOfSubCollection: (self class with: anElement) startingAt: start.
-					found <= stop ifTrue: [found] ifFalse: [0]]]
-		ifFalse: 
-			["Strings can only contain Characters"
-			0]!
+			[^self
+				basicIdentityIndexOf: codePoint
+				from: startInteger
+				to: stopInteger].
+	stream := self readStream.
+	i := startInteger - 1.
+	stream position: i.
+	
+	[stream next = aCharacter ifTrue: [^i + 1].
+	i := stream position.
+	i >= stopInteger] whileFalse.
+	^0!
 
-reverse
-	"Answer a copy of the receiver but with its elements in reverse order."
+reversedFrom: startInteger to: stopInteger
+	"Answer a new <sequencedReadableCollection> like the receiver containing those elements of the receiver between the <integer> indices startInteger and stopInteger, inclusive, but in reverse order."
 
 	| reversed i j size |
-	j := size := self size.
+	j := size := stopInteger - startInteger + 1.
 	reversed := self species new: size.
-	i := 1.
-	[i <= size] whileTrue: 
+	i := startInteger.
+	[i <= stopInteger] whileTrue: 
 			[| ch |
 			ch := self basicAt: i.
 			ch < TrailByteMask
@@ -354,39 +449,62 @@ reverse
 strlen
 	"Private - Answer the length of the receiver in code units (not code points) up to the first null terminator. This may be less than its size if it contains embedded nulls. It can never be greater than the receiver's size."
 
-	^CRTLibrary default strlen: self! !
+	^CRTLibrary default strlen: self!
+
+urlEncoded
+	"Percent encode the receiver as described in RFC 3986 (https://tools.ietf.org/html/rfc3986) Section 2.
+	Not every part in a URI should be encoded as it is explained in section 2.4 so you should be cautious."
+
+	| encodedStream |
+	encodedStream := AnsiString writeStream: self size.
+	self codeUnitsDo: 
+			[:each |
+			"Unreserved characters from RFC3986, section 2.3: Ascii letters and digits, hyphen, underscore, period and tilde"
+			('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.~' includes: each)
+				ifTrue: [encodedStream nextPut: each]
+				ifFalse: 
+					[encodedStream nextPut: $%.
+					each codeUnit
+						printOn: encodedStream
+						base: 16
+						nDigits: 2]].
+	^encodedStream grabContents! !
 !Utf8String categoriesFor: #_beginsString:!comparing!double dispatch!private! !
 !Utf8String categoriesFor: #asLowercase!converting!public! !
 !Utf8String categoriesFor: #asUppercase!converting!public! !
 !Utf8String categoriesFor: #asUtf8String!converting!public! !
+!Utf8String categoriesFor: #before:ifAbsent:!public!searching! !
 !Utf8String categoriesFor: #bom!constants!encode/decode!private! !
 !Utf8String categoriesFor: #copyToBuffer:ofSize:!copying!private! !
+!Utf8String categoriesFor: #countElements!accessing!public! !
+!Utf8String categoriesFor: #decodeAt:!encode/decode!private! !
 !Utf8String categoriesFor: #decodeNextFrom:!encode/decode!private! !
 !Utf8String categoriesFor: #encodedAt:put:!accessing!encode/decode!private! !
+!Utf8String categoriesFor: #encodedSizeAt:!encode/decode!private! !
 !Utf8String categoriesFor: #encodedSizeOf:!encode/decode!private! !
 !Utf8String categoriesFor: #encodeOn:put:!encode/decode!private! !
-!Utf8String categoriesFor: #length!accessing!public! !
+!Utf8String categoriesFor: #isLeadCodeUnit:!encode/decode!public!testing! !
 !Utf8String categoriesFor: #maxEncoding!constants!private! !
-!Utf8String categoriesFor: #nextIndexOf:from:to:!public!searching! !
-!Utf8String categoriesFor: #reverse!copying!public! !
+!Utf8String categoriesFor: #nextIndexOfCharacter:from:to:!private!searching! !
+!Utf8String categoriesFor: #reversedFrom:to:!copying!public! !
 !Utf8String categoriesFor: #strlen!accessing!private! !
+!Utf8String categoriesFor: #urlEncoded!public! !
 
 !Utf8String class methodsFor!
+
+characterForCodeUnit: anInteger
+	^Character utf8Value: anInteger!
 
 codePage
 	"Answer the Windows code page constants for the receiver's encoding."
 
 	^Win32Constants.CP_UTF8!
 
-elementSize
-	"Answer the size of the elements of the receiver in bytes."
-
-	^1!
-
 fromAddress: anAddress
 	"Answer a new String instantiated from the null terminated string at anAddress."
 
-	^self fromAddress: anAddress length: (CRTLibrary default strlen: anAddress)!
+	^anAddress isNull
+		ifFalse: [self fromAddress: anAddress length: (CRTLibrary default strlen: anAddress)]!
 
 initialize
 	self extraInstanceSpec: EncodingUtf8.
@@ -399,8 +517,8 @@ initialize
 	self addClassConstant: 'LeadByteMask4' value: 16rF0.
 	self addClassConstant: 'TrailByteMask' value: 16r80.
 	self addClassConstant: 'Bom' value: #[16rEF 16rBB 16rBF]! !
+!Utf8String class categoriesFor: #characterForCodeUnit:!enquiries!public! !
 !Utf8String class categoriesFor: #codePage!instance creation!public! !
-!Utf8String class categoriesFor: #elementSize!constants!public! !
 !Utf8String class categoriesFor: #fromAddress:!instance creation!public! !
 !Utf8String class categoriesFor: #initialize!development!initializing!public! !
 

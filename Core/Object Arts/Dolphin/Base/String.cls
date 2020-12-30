@@ -53,37 +53,13 @@ N.B. Dolphin Strings are, unlike Smalltalk-80 strings, null-terminated. Space fo
 				nextPutAll: aSequencedReadableCollection;
 				contents]!
 
-_cmp: comparand
-	"Private - Answer the receiver's <integer> ordinal collation order with respect to 
-	the <readableString> argument, comparand. The answer is < 0 if
-	the receiver is ordinally before the argument, 0 if ordinally equivalent, or
-	> 0 if ordinally after the argument. This comparison is fast and locale insensitive."
+_cmp: aString
+	"Private - Answer the receiver's <integer> ordinal collation order with respect to the <readableString> argument.
+	The answer is < 0 if the receiver is ordinally before the argument, 0 if ordinally equivalent, or > 0 if ordinally after the argument. 
+	This comparison is fast and locale insensitive."
 
 	<primitive: 220>
 	^self primitiveFailed: _failureCode!
-
-_collate: comparand
-	"Private - Answer the receiver's <integer> collation order with respect to 
-	the <readableString> argument, comparand. The answer is < 0 if
-	the receiver is lexically before the argument, 0 if lexically equivalent, or
-	> 0 if lexically after the argument. The comparision is CASE INSENSITIVE.
-	The comparison respects the currently configured default locale of the
-	host operating system, and the performance may disappoint in some cases."
-
-	<primitive: 56>
-	| string1 string2 |
-	comparand isString ifFalse: [^self error: 'Invalid comparand'].
-	"The primitive works with any supported string encoding (ANSI, UTF-8 and UTF-16) and invokes
-	the OS StringCompare function, in essence as follows:"
-	string1 := self asUtf16String.
-	string2 := comparand asUtf16String.
-	^(KernelLibrary default
-		compareString: Win32Constants.LOCALE_USER_DEFAULT
-		dwCmpFlags: Win32Constants.NORM_IGNORECASE
-		lpString1: string1
-		cchCount1: string1 size
-		lpString2: string2
-		cchCount2: string2 size) - 2!
 
 _indexOfAnyInString: aString startingAt: anInteger
 	| span |
@@ -98,18 +74,14 @@ _indexOfAnyInString: aString startingAt: anInteger
 				ifTrue: [super _indexOfAnyInString: aString startingAt: anInteger]
 				ifFalse: [span + anInteger]]!
 
-_sameAsString: aString 
+_sameAsString: aString
 	"Private - Answer whether the receiver collates the same as argument, aString."
 
-	"Implementation Note: Double dispatched from String>>sameAs:. Works for any mix of encodings
-	because _collate: does."
+	"Implementation Note: Double dispatched from String>>sameAs:. Works for any mix of encodings because <=> does."
 
-	^self == aString or: [(aString _collate: self) == 0]!
+	^self == aString or: [aString <=> self == 0]!
 
 _separateSubStringsIn: aReadableString
-	"Private - Answer an Array containing the substrings in aReadableString separated
-	by the receiver."
-
 	| start size answer subSize |
 	(subSize := self size) == 0
 		ifTrue: [^self error: 'separator must consist of at least one character'].
@@ -130,47 +102,90 @@ _separateSubStringsIn: aReadableString
 			whileFalse.
 	^answer contents!
 
-< comparand
-	"Answer whether the receiver is lexically less than the <readableString>, comparand,
-	ignoring case, according to the implementation defined collation sequence (see _collate:)."
+< aString
+	"Answer whether the receiver is lexically less than the <readableString> argument, ignoring case, according to the implementation defined collation sequence (see <=>)."
 
-	^(self _collate: comparand) < 0!
+	^self <=> aString < 0!
 
-<= comparand
-	"Answer whether the receiver is lexically less than or equal to the <readableString>, 
-	comparand, ignoring case, according to the implementation defined collation sequence 
-	(see _collate:). Note that this is the equivalent to 
+<< anObject
+	"Expand the receiver with replacable arguments represented by anObject.
+	anObject may be an individual object mapping to a single parameter (in which case this message is equivalent to #expandMacrosWith:),
+	or a collection mapping to a collection of parameters (in which case this message is equivalent to #expandMacrosWithArguments:).
+
+	See #expandMacrosWithArguments: for further details."
+
+	^anObject expandMacrosIn: self!
+
+<= aString
+	"Answer whether the receiver is lexically less than or equal to the <readableString>, argument, ignoring case, according to the implementation defined collation sequence (see <=>)."
+
+	"Note that this is the equivalent to 
 		'self < comparand or: [self sameAs: comparand]'
 	and NOT
 		'self < comparand or: [self = comparand]
 	since String>>= is case sensitive."
 
-	^(self _collate: comparand) <= 0!
+	^self <=> aString <= 0!
 
-= comparand
-	"Answer whether the receiver and the <Object> argument, comparand, are both <String>s containing identical code points.
+<==> comparand
+	"Answer the receiver's <integer> collation order with respect to the <readableString> argument, comparand. 
+	Similar to the spaceship operator, <=>, but the comparison is comparison is CASE SENSITIVE."
+
+	"Implementation Note: CompareString performs a word-based comparison which keeps, for example, hyphenated words together with equivalent non-hyphenated words. This is useful, but slower than a basic string collation.
+	Also the comparison respects the currently configured default locale of the host operating system, and the performance may disappoint in some cases."
+
+	<primitive: 51>
+	| string1 string2 |
+	string1 := self asUtf16String.
+	string2 := comparand asUtf16String.
+	^(KernelLibrary default
+		compareString: Win32Constants.LOCALE_USER_DEFAULT
+		dwCmpFlags: 0
+		lpString1: string1
+		cchCount1: string1 size
+		lpString2: string2
+		cchCount2: string2 size) - 2!
+
+<=> aString
+	"Answer the receiver's <integer> collation order with respect to the <readableString> argument. Colloquially known as the spaceship operator.
+	The answer is < 0 if the receiver is lexically before the argument, 0 if lexically equivalent, or	> 0 if lexically after the argument. 
+	The comparision is CASE INSENSITIVE and respects the currently configured default locale of the host operating system.
+	Note that this can be a relatively complex comparison and may be substantially slower than a simple ordinal comparison."
+
+	<primitive: 56>
+	| string1 string2 |
+	aString isString ifFalse: [^self error: 'Invalid comparand'].
+	"The primitive works with any supported string encoding (ANSI, UTF-8 and UTF-16) and invokes the OS StringCompare function, in essence as follows:"
+	string1 := self asUtf16String.
+	string2 := aString asUtf16String.
+	^(KernelLibrary default
+		compareString: Win32Constants.LOCALE_USER_DEFAULT
+		dwCmpFlags: Win32Constants.NORM_IGNORECASE
+		lpString1: string1
+		cchCount1: string1 size
+		lpString2: string2
+		cchCount2: string2 size) - 2!
+
+= anObject
+	"Answer whether the receiver and the <Object> argument are both <String>s containing identical code points.
 	Note that <Symbol>s are now considered equal to <String>s with the same characters.
 
 	Primitive failure results:
-		InvalidParameter1  	- comparand is not a null-terminated object.
-		AssertionFailure		- comparand and/or receiver encoding not recognised."
+		InvalidParameter1  	- anObject is not a null-terminated object.
+		AssertionFailure		- anObject and/or receiver encoding not recognised."
 
 	<primitive: 219>
-	^self == comparand or: [comparand isString and: [(self _cmp: comparand) == 0]]!
+	^self == anObject or: [anObject isString and: [(self _cmp: anObject) == 0]]!
 
-> comparand
-	"Answer whether the receiver is lexically greater than the <readableString>, comparand,
-	ignoring case, according to the implementation defined collation sequence 
-	(see _collate:)."
+> aString
+	"Answer whether the receiver is lexically greater than the <readableString> argument, ignoring case, according to the implementation defined collation sequence (see <=>)."
 
-	^(self _collate: comparand) > 0!
+	^self <=> aString > 0!
 
->= comparand
-	"Answer whether the receiver is lexically greater than or equal to the 
-	<readableString> comparand, ignoring case, according to the implementation 
-	defined collation sequence (see _collate:)."
+>= aString
+	"Answer whether the receiver is lexically greater than or equal to the <readableString> argument, ignoring case, according to the implementation defined collation sequence (see <=>)."
 
-	^(self _collate: comparand) >= 0!
+	^self <=> aString >= 0!
 
 appendToStream: puttableStream
 	"Private - Append the receiver's elements to the argument, puttableStream.
@@ -221,14 +236,14 @@ asPhrase
 
 	| stream last |
 	stream := self species writeStream: self size + 10.
-	self readStream do: 
-			[:each | 
-			last isNil 
+	self do: 
+			[:each |
+			last isNil
 				ifTrue: [each == $: ifFalse: [last := stream nextPut: each asUppercase]]
 				ifFalse: 
-					[each == $: 
+					[each == $:
 						ifFalse: 
-							[last == $: 
+							[last == $:
 								ifTrue: 
 									[stream
 										space;
@@ -244,6 +259,16 @@ asResourceId
 	"On Windows wide string APIs will be expecting string resource names to be in UTF-16."
 
 	^self asUtf16String!
+
+associations
+	"Answer a <sequencedReadableCollection> containing the receiver's associations, representing the keys (indices) and values (Characters) in the receiver."
+
+	"Strings don't actually contains Associations so the result is built afresh each time and modifying its contents will not affect the original collection. However this is no different to the implementation for LookupTable/IdentityDictionary."
+
+	| stream |
+	stream := Array writeStream: self size.
+	self keysAndValuesDo: [:eachKey :eachValue | stream nextPut: eachKey -> eachValue].
+	^stream grabContents!
 
 asString
 	"Answer a <readableString> containing the same characters as the receiver,
@@ -286,7 +311,7 @@ asUtf8String
 	^self asUtf16String asByteString: Utf8String!
 
 at: index
-	"Answer the <Character> at the <integer> index, in the receiver."
+	"Answer the <Character> with the code unit at the <integer> index, in the receiver."
 
 	"Primitive Failure Reasons:
 		InvalidParameter1	- aSmallInteger is not a SmallInteger
@@ -397,7 +422,16 @@ contains: aString
 
 	^(self findString: aString startingAt: 1) ~~ 0!
 
+copyReplaceAll: oldSequencedReadableCollection with: newSequencedReadableCollection
+	^super copyReplaceAll: (self class coerceString: oldSequencedReadableCollection asString)
+		with: (self class coerceString: newSequencedReadableCollection asString)!
+
 copyToBuffer: anAddress ofSize: anInteger
+	^self subclassResponsibility!
+
+decodeAt: anInteger
+	"Private - Answer the encoded object beginning at the specified position in the receiver."
+
 	^self subclassResponsibility!
 
 decodeNextAvailable: anInteger from: aReadStream
@@ -405,7 +439,7 @@ decodeNextAvailable: anInteger from: aReadStream
 	many as are available before the end of stream."
 
 	| newStream count next |
-	newStream := self class writeStream: (count := anInteger).
+	newStream := self species writeStream: (count := anInteger).
 	[count == 0 or: [(next := aReadStream nextAvailable) isNil]] whileFalse: 
 			[newStream nextPut: next.
 			count := count - 1].
@@ -431,6 +465,11 @@ displayString
 
 	^self!
 
+encodedSizeAt: anInteger
+	"Private - Answer the <integer> number of code units occuppied by the <Character> whose first code unit is at the specified index in the receiver. Throw an error if the code unit at anInteger is not either an ASCII code point or a UTF-8 lead surrogate"
+
+	^self subclassResponsibility!
+
 encodeOn: aWriteStream put: aCharacter
 	"Private - Encode the <Character> argument onto the <WriteStream> argument using the character
 	encoding of the receiver, e.g. for Utf8String, this would be the relevant sequence of 1 to 4
@@ -438,36 +477,41 @@ encodeOn: aWriteStream put: aCharacter
 
 	^self subclassResponsibility!
 
-encoding
-	^self class encoding!
-
 expandMacros
 	"Expand the receiver with replacable arguments.
-	See #formatWithArguments: for further details."
+	See #expandMacrosWithArguments: for further details."
 
 	^self expandMacrosWithArguments: #()!
 
+expandMacrosIn: aString
+
+	"Private - Expand aString with the replaceable argument represented by the receiver.
+
+	Overridden here to avoid treating the receiver as a collection of multiple arguments"
+
+	^aString expandMacrosWith: self!
+
 expandMacrosWith: anObject
 	"Expand the receiver with replacable arguments.
-	See #formatWithArguments: for further details."
+	See #expandMacrosWithArguments: for further details."
 
 	^self expandMacrosWithArguments: {anObject}!
 
 expandMacrosWith: anObject with: anotherObject
 	"Expand the receiver with replacable arguments.
-	See #formatWithArguments: for further details."
+	See #expandMacrosWithArguments: for further details."
 
 	^self expandMacrosWithArguments: {anObject. anotherObject}!
 
 expandMacrosWith: anObject with: anotherObject with: thirdObject 
 	"Expand the receiver with replacable arguments.
-	See #formatWithArguments: for further details."
+	See #expandMacrosWithArguments: for further details."
 
 	^self expandMacrosWithArguments: {anObject. anotherObject. thirdObject}!
 
 expandMacrosWith: anObject with: anotherObject with: thirdObject with: fourthObject 
 	"Expand the receiver with replacable arguments.
-	See #formatWithArguments: for further details."
+	See #expandMacrosWithArguments: for further details."
 
 	^self expandMacrosWithArguments: {anObject. anotherObject. thirdObject. fourthObject}!
 
@@ -533,7 +577,7 @@ findString: aString
 
 	^self findString: aString startingAt: 1!
 
-findString: aString startingAt: anInteger 
+findString: aString startingAt: anInteger
 	"Answer the index of the <String> argument within the receiver, starting at the <integer> argument. If the receiver does not contain aString, answer 0.
 
 	Primitive Failure Reasons:
@@ -544,7 +588,7 @@ findString: aString startingAt: anInteger
 	Implementation Note: The string search primitive is implemented using the Boyer-Moore algorithm unless the receiver is less than 512 bytes long, in which case it isn't worth initializing the skip array in most cases, so a simple brute force search (much like that of the superclass) is used."
 
 	<primitive: 149>
-	^super indexOfSubCollection: aString startingAt: anInteger!
+	^self basicIndexOfSubCollection: (self class coerceString: aString) startingAt: anInteger!
 
 findString: aString startingAt: anInteger ignoreCase: aBoolean 
 	"Answer the index of the <String> argument within the receiver, ignoring case differences, starting at the <integer>
@@ -617,7 +661,8 @@ hash
 	"FNV1a"
 	1 to: utf8 size do: [:i | hash := (hash bitXor: (utf8 basicAt: i)) * 16777619 bitAnd: 16rFFFFFFFF].
 	"Fold to 30 bits so is always positive SmallInteger"
-	^(hash bitShift: -30) bitXor: (hash bitAnd: 16r3FFFFFFF)!
+	^(hash bitShift: VMConstants.SmallIntegerMax highBit negated)
+		bitXor: (hash bitAnd: VMConstants.SmallIntegerMax)!
 
 indexOfAnyOf: aCollectionOfCharacters startingAt: anInteger 
 	"Answer the one-based integer index of the first encountered element of the receiver which
@@ -627,14 +672,17 @@ indexOfAnyOf: aCollectionOfCharacters startingAt: anInteger
 
 	^aCollectionOfCharacters _indexOfAnyInString: self startingAt: anInteger!
 
-indexOfSubCollection: targetSequence startingAt: start
-	"Answer the <integer> index of the next occurrence within the 
-	receiver of the <sequencedReadableCollection> targetSequence,
-	starting at the <integer> index start. If there are no such occurrences
-	(or the search sequence is empty), answer 0."
+indexOfSubCollection: aSequencedReadableCollection startingAt: startInteger
+	"Answer the <integer> index of the next occurrence within the receiver of the <sequencedReadableCollection> sub-sequence, starting at the specified <integer> index. If there are no such occurrences (or the search sequence is empty), answer 0."
 
 	<primitive: 149>
-	^super indexOfSubCollection: targetSequence startingAt: start!
+	aSequencedReadableCollection isString
+		ifTrue: 
+			[| encoded |
+			encoded := self class coerceString: aSequencedReadableCollection.
+			encoded ~~ aSequencedReadableCollection
+				ifTrue: [^self indexOfSubCollection: encoded startingAt: startInteger]].
+	^self basicIndexOfSubCollection: aSequencedReadableCollection startingAt: startInteger!
 
 isLiteral
 	"Answer whether the receiver can be represented as a literal (i.e. it has a printed
@@ -648,12 +696,10 @@ isString
 	^true!
 
 leftString: anInteger
-	"Answer a new string comprising up to the leftmost anInteger characters of the receiver. 
-	If the receiver has less than anInteger characters, then copy only those characters in the 
-	receiver."
+	"Answer a new string comprising up to the leftmost anInteger <Characters> of the receiver. 
+	If the receiver has less than anInteger characters, then copy only those characters in the receiver."
 
-	^self first:( anInteger min: self size).
-!
+	^self first: (anInteger min: self length)!
 
 length
 	"Answer the number of Unicode code-points in the receiver. Note that:
@@ -668,7 +714,7 @@ lines
 	separated by line delimiters. Blank lines are included.
 	N.B. It is assumed that a line delimiter consists of two characters."
 
-	^self subStrings: String lineDelimiter!
+	^String lineDelimiter split: self!
 
 lookup: keyInteger
 	"Answer the <Character> value named by the <Integer> argument, keyInteger, or nil if there is no such key in the receiver."
@@ -754,8 +800,7 @@ max: operand
 		ifFalse: [self]!
 
 midString: anIntegerLength from: anIntegerStart
-	"Answer a new string comprising the anIntegerLength characters starting
-	at anIntegerStart in the receiver."
+	"Answer a new string comprising the anIntegerLength <Characters> starting at anIntegerStart in the receiver."
 
 	^self copyFrom: anIntegerStart to: anIntegerStart + anIntegerLength - 1!
 
@@ -766,15 +811,52 @@ min: operand
 		ifTrue:  [self]
 		ifFalse: [operand]!
 
-nextIdentityIndexOf: anElement from: start to: stop
-	"Answer the index of the next occurrence of anElement in the receiver's indexable
-	variables between startIndex and stopIndex inclusive. If there are no such occurrences, answer 0.
-	Implementation Note: Override the inherited implementation to make use of the primitive."
+nextIdentityIndexOf: anObject from: startInteger to: stopInteger
+	"Answer the index of the next occurrence of anObject in the receiver's indexable variables between startInteger and stopInteger inclusive. If there are no such occurrences, or the search interval is empty, answer 0."
+
+	"The primitive will find Characters in any encoding of String. 
+
+	Primitive failure reasons:
+		InvalidParameter2	- startInteger is not a SmallInteger
+		InvalidParameter3	- stopInteger is not a SmallInteger
+		OutOfBounds		- one or other index if out of bounds (not in the range [1..receiver's size]
+		AssertionFailure		- malformed receiver (unrecognised encoding)"
 
 	<primitive: 52>
-	^anElement class == Character 
-		ifTrue: [self basicIdentityIndexOf: anElement asInteger from: start to: stop]
-		ifFalse: [0 "Can only contain characters"]!
+	^anObject class == Character
+		ifTrue: 
+			[self
+				nextIndexOfCharacter: anObject
+				from: startInteger
+				to: stopInteger]
+		ifFalse: 
+			["Strings can only contain Characters"
+			^0]!
+
+nextIndexOf: anObject from: startInteger to: stopInteger
+	"Answer the index of the next occurrence of anObject in the receiver's indexable variables between startInteger and stopInteger inclusive. If there are no such occurrences, or the search interval is empty, answer 0."
+
+	"The primitive will find Characters in any encoding of String. 
+
+	Primitive failure reasons:
+		InvalidParameter2	- startInteger is not a SmallInteger
+		InvalidParameter3	- stopInteger is not a SmallInteger
+		OutOfBounds		- one or other index if out of bounds (not in the range [1..receiver's size]
+		AssertionFailure		- malformed receiver (unrecognised encoding)"
+
+	<primitive: 52>
+	^anObject class == Character
+		ifTrue: 
+			[self
+				nextIndexOfCharacter: anObject
+				from: startInteger
+				to: stopInteger]
+		ifFalse: 
+			["Strings can only contain Characters"
+			^0]!
+
+nextIndexOfCharacter: aCharacter from: startInteger to: stopInteger
+	^self subclassResponsibility!
 
 occurrencesOf: anObject 
 	"Answer how many of the receiver's elements are equal to anObject.
@@ -802,6 +884,23 @@ occurrencesOf: anObject from: startInteger to: endInteger
 			current := next + 1].
 	^occurrences!
 
+prevIndexOf: anObject from: hiInteger to: loInteger
+	"Answer the <integer> index of the first occurrence of anElement in the receiver that is before index, hiInteger, but after index, loInteger. The range is inclusive. If there are no such occurrences, answer 0."
+
+	| last next |
+	last := 0.
+	next := self
+				nextIndexOf: anObject
+				from: loInteger
+				to: hiInteger.
+	[next == 0 or: [next > hiInteger]] whileFalse: 
+			[last := next.
+			next := self
+						nextIndexOf: anObject
+						from: last + 1
+						to: hiInteger].
+	^last!
+
 printOn: aStream
 	"Append the receiver as a quoted string to aStream. The stream is expected to be over a
 	String suitable for holding any Unicode code point (e.g. Utf8String or Utf16String).
@@ -818,11 +917,11 @@ printOn: aStream
 				ifFalse: [(aStream nextPut: ch) == $' ifTrue: [aStream nextPut: $']]].
 	aStream nextPut: $'!
 
-refersToLiteral: anObject 
+refersToLiteral: anObject
 	"Private - Answer whether the receiver is a reference to the literal argument.
 	This assumes that the receiver is in the role of a literal."
 
-	^self = anObject!
+	^anObject isSymbol not and: [self = anObject].!
 
 replaceBytesOf: aByteObject from: start to: stop startingAt: fromStart
 	"Private - Standard method for transfering bytes from one variable
@@ -868,11 +967,6 @@ replaceFrom: startInteger to: stopInteger with: aReadableString startingAt: star
 					(ch := stream nextAvailable) isNil ifTrue: [BoundsError signalWith: stream position + 1].
 					current := (self encodedAt: current put: ch) + 1]]!
 
-reverse
-	"Answer a copy of the receiver but with its elements in reverse order."
-
-	^self subclassResponsibility!
-
 rightString: anInteger
 	"Answer a new string comprising the rightmost anInteger characters of the receiver."
 
@@ -909,6 +1003,28 @@ skipOver: aStream ignoreCase: ignoreCase
 					[aStream position: originalPosition.
 					^false]].
 	^true!
+
+split: aReadableString
+	"Answer an Array containing the substrings in aReadableString separated by the sequence of characters of the receiver."
+
+	| start end answer subSize size |
+	subSize := self size.
+	size := aReadableString size.
+	size == 0 ifTrue: [^{}].
+	subSize == 1 ifTrue: [^(self at: 1) split: aReadableString].
+	end := aReadableString findString: self startingAt: 1.
+	end == 0 ifTrue: [^{aReadableString}].
+	start := 1.
+	answer := Array writeStream: 10.
+	
+	[answer nextPut: (aReadableString copyFrom: start to: end - 1).
+	start := end + subSize.
+	end := aReadableString findString: self startingAt: start.
+	end == 0]
+			whileFalse.
+	"Copy any remaining chars after the last separator"
+	answer nextPut: (aReadableString copyFrom: start to: size).
+	^answer contents!
 
 sprintfWith: arg1
 	"Answer a String which is a message formatted from the receiver (assumed to be a C-printf
@@ -972,9 +1088,7 @@ strcspn: aString start: anInteger
 	^CRTLibrary default strcspn: self yourAddress + anInteger - 1 strCharSet: aString!
 
 strlen
-	"Answer the length of the receiver (in characters) up to the first null terminator. This may
-	be less than its size if it contains embedded nulls. It can never be greater than the
-	receiver's size."
+	"Answer the length of the receiver (in code units) up to the first null terminator. This may be less than its size if it contains embedded nulls. It can never be greater than the receiver's size."
 
 	^self subclassResponsibility!
 
@@ -995,18 +1109,11 @@ subStrings
 			word notEmpty ifTrue: [answer add: word]].
 	^answer asArray!
 
-subStrings: separatorOrSeparators 
-	"Answer an array containing the substrings of the receiver separated by occurrences
-	of the <Character> or <readableString> argument, separator.
-	Repeated separators produce empty strings in the array (cf. #subStrings).
-	The separators are removed."
+subStrings: separatorOrSeparators
+	"Answer an array containing the substrings of the receiver separated by occurrences of the <Character> or <readableString> argument, separator.
+	Repeated separators produce empty strings in the array (cf. #subStrings). The separators are removed."
 
-	#todo.	"This does not comply with the current ANSI definition, which expects that the
-		argument is a <sequencedReadableCollection> of separators, any one of which may
-		separate each token. For historical reasons the Dolphin implementation accepts also
-		accepts a single character as the separator, and furthermore when passed a <String>
-		it will use the entire string as a multi-character separator. A workaround is to
-		convert the separator string to an array of <Character>."
+	#todo. "N.B. This does not comply with the current ANSI definition, which expects that the argument is a <sequencedReadableCollection> of separators, any one of which may separate each token. In the next major release (7.2) this behaviour will be changed to be ANSI compliant. Also the historic asymmetric behaviour of ignoring a terminating separator will be corrected so that the operation behaves in the same was as Character>>split:"
 	^separatorOrSeparators _separateSubStringsIn: self!
 
 subStringsAnsi: separators
@@ -1016,6 +1123,7 @@ subStringsAnsi: separators
 	The separators are removed."
 
 	| start answer size end |
+	#deprecated. "Will be removed in 7.2"
 	size := self size.
 	size == 0 ifTrue: [^{}].
 	end := self indexOfAnyOf: separators startingAt: 1.
@@ -1075,35 +1183,16 @@ trimNulls
 	| len |
 	^(len := self strlen) = self size ifTrue: [self] ifFalse: [self copyFrom: 1 to: len]!
 
-trueCompare: comparand
-	"Private - Answer the receiver's <integer> collation order with respect to 
-	the <readableString> argument, comparand. The answer is < 0 if
-	the receiver is lexically before the argument, 0 if lexically equivalent, or
-	> 0 if lexically after the argument. The comparision is CASE SENSITIVE.
-	Implementation Note: lstrcmp() is used, which is a word based comparison
-	which keeps, for example, hyphenated words together with equivalent
-	non-hyphenated words. This is useful, but slower than a basic string collation.
-	Also the comparison respects the currently configured default locale of the
-	host operating system, and the performance may disappoint in some cases."
-
-	<primitive: 51>
-	| string1 string2 |
-	string1 := self asUtf16String.
-	string2 := comparand asUtf16String.
-	^(KernelLibrary default
-		compareString: Win32Constants.LOCALE_USER_DEFAULT
-		dwCmpFlags: 0
-		lpString1: string1
-		cchCount1: string1 size
-		lpString2: string2
-		cchCount2: string2 size) - 2!
-
 truncateTo: anInteger
 	"Answer a <readableString> of at most anInteger characters from the receiver."
 
 	^self size <= anInteger ifTrue: [self] ifFalse: [self copyFrom: 1 to: anInteger]!
 
 unescapePercents
+	Notification deprecated.
+	^self urlDecoded!
+
+urlDecoded
 	"Asuming that receiver is a URI encoded representation from UTF-8 as specified in RFC3986,
 	answer a <Utf8String> representing the unescaped (original) UTF-8 encoded text. If it is
 	detected that the content is not URI-encoded (e.g. it contains %-prefixed character
@@ -1114,7 +1203,13 @@ unescapePercents
 
 	| ansi |
 	ansi := self asAnsiString.
-	^(ansi = self) ifTrue: [ansi unescapePercents] ifFalse: [self]!
+	^ansi = self ifTrue: [ansi urlDecoded] ifFalse: [self]!
+
+urlEncoded
+	"Percent encode the receiver as described in RFC 3986 (https://tools.ietf.org/html/rfc3986) Section 2.
+	Not every part in a URI should be encoded as it is explained in section 2.4 so you should be cautious."
+
+	^self asUtf8String urlEncoded!
 
 withNormalizedLineDelimiters
 	"Answer a copy of the receiver with any line terminator convention converted to the windows (CR/LF) convention."
@@ -1136,12 +1231,14 @@ withNormalizedLineDelimiters
 	^target contents! !
 !String categoriesFor: #,!copying!public! !
 !String categoriesFor: #_cmp:!comparing!private! !
-!String categoriesFor: #_collate:!comparing!private! !
 !String categoriesFor: #_indexOfAnyInString:startingAt:!double dispatch!private!searching! !
 !String categoriesFor: #_sameAsString:!comparing!private! !
-!String categoriesFor: #_separateSubStringsIn:!double dispatch!private! !
+!String categoriesFor: #_separateSubStringsIn:!private!tokenizing! !
 !String categoriesFor: #<!comparing!public! !
+!String categoriesFor: #<<!printing!public! !
 !String categoriesFor: #<=!comparing!public! !
+!String categoriesFor: #<==>!comparing!public! !
+!String categoriesFor: #<=>!comparing!public! !
 !String categoriesFor: #=!comparing!public! !
 !String categoriesFor: #>!comparing!public! !
 !String categoriesFor: #>=!comparing!public! !
@@ -1153,6 +1250,7 @@ withNormalizedLineDelimiters
 !String categoriesFor: #asNumber!converting!public! !
 !String categoriesFor: #asPhrase!converting!public! !
 !String categoriesFor: #asResourceId!converting!public! !
+!String categoriesFor: #associations!accessing!public! !
 !String categoriesFor: #asString!converting!public! !
 !String categoriesFor: #asSymbol!converting!public! !
 !String categoriesFor: #asUIntPtr!converting!public! !
@@ -1171,14 +1269,17 @@ withNormalizedLineDelimiters
 !String categoriesFor: #capitalized!converting!public! !
 !String categoriesFor: #codePage!constants!public! !
 !String categoriesFor: #contains:!public!searching! !
+!String categoriesFor: #copyReplaceAll:with:!public! !
 !String categoriesFor: #copyToBuffer:ofSize:!constants!copying!private! !
+!String categoriesFor: #decodeAt:!encode/decode!private! !
 !String categoriesFor: #decodeNextAvailable:from:!encode/decode!private! !
 !String categoriesFor: #decodeNextFrom:!encode/decode!private! !
 !String categoriesFor: #displayOn:!printing!public! !
 !String categoriesFor: #displayString!printing!public! !
+!String categoriesFor: #encodedSizeAt:!encode/decode!private! !
 !String categoriesFor: #encodeOn:put:!encode/decode!private! !
-!String categoriesFor: #encoding!constants!public! !
 !String categoriesFor: #expandMacros!printing!public! !
+!String categoriesFor: #expandMacrosIn:!double dispatch!private! !
 !String categoriesFor: #expandMacrosWith:!printing!public! !
 !String categoriesFor: #expandMacrosWith:with:!printing!public! !
 !String categoriesFor: #expandMacrosWith:with:with:!printing!public! !
@@ -1208,30 +1309,34 @@ withNormalizedLineDelimiters
 !String categoriesFor: #midString:from:!copying!public! !
 !String categoriesFor: #min:!comparing!public! !
 !String categoriesFor: #nextIdentityIndexOf:from:to:!public!searching! !
+!String categoriesFor: #nextIndexOf:from:to:!public!searching! !
+!String categoriesFor: #nextIndexOfCharacter:from:to:!private!searching! !
 !String categoriesFor: #occurrencesOf:!public!searching! !
 !String categoriesFor: #occurrencesOf:from:to:!public!searching! !
+!String categoriesFor: #prevIndexOf:from:to:!public!searching! !
 !String categoriesFor: #printOn:!printing!public! !
 !String categoriesFor: #refersToLiteral:!private!testing! !
 !String categoriesFor: #replaceBytesOf:from:to:startingAt:!double dispatch!private! !
 !String categoriesFor: #replaceFrom:to:with:startingAt:!public!replacing! !
-!String categoriesFor: #reverse!copying!public! !
 !String categoriesFor: #rightString:!copying!public! !
 !String categoriesFor: #sameAs:!comparing!public! !
 !String categoriesFor: #skipOver:ignoreCase:!private!searching! !
+!String categoriesFor: #split:!public!tokenizing! !
 !String categoriesFor: #sprintfWith:!printing!public! !
 !String categoriesFor: #sprintfWith:with:!printing!public! !
 !String categoriesFor: #storeOn:!printing!public! !
 !String categoriesFor: #strcspn:start:!private!searching! !
 !String categoriesFor: #strlen!accessing!private! !
-!String categoriesFor: #subStrings!copying!public! !
-!String categoriesFor: #subStrings:!copying!public! !
+!String categoriesFor: #subStrings!public!tokenizing! !
+!String categoriesFor: #subStrings:!public!tokenizing! !
 !String categoriesFor: #subStringsAnsi:!copying!public! !
 !String categoriesFor: #titleCased!converting!public! !
 !String categoriesFor: #trimBlanks!copying!public! !
 !String categoriesFor: #trimNulls!copying!public! !
-!String categoriesFor: #trueCompare:!comparing!private! !
 !String categoriesFor: #truncateTo:!converting!public! !
 !String categoriesFor: #unescapePercents!operations!public! !
+!String categoriesFor: #urlDecoded!operations!public! !
+!String categoriesFor: #urlEncoded!operations!public! !
 !String categoriesFor: #withNormalizedLineDelimiters!converting!public! !
 
 String methodProtocol: #readableString attributes: #(#ansi #readOnly) selectors: #(#, #< #<= #> #>= #after: #asLowercase #asString #asSymbol #asUppercase #at: #at:ifAbsent: #before: #between:and: #copyFrom:to: #copyReplaceAll:with: #copyReplaceFrom:to:with: #copyReplaceFrom:to:withObject: #copyReplacing:withObject: #copyWith: #copyWithout: #do: #findFirst: #findLast: #first #from:to:do: #from:to:keysAndValuesDo: #indexOf: #indexOf:ifAbsent: #indexOfSubCollection:startingAt: #indexOfSubCollection:startingAt:ifAbsent: #keysAndValuesDo: #last #max: #min: #reverse #reverseDo: #sameAs: #subStrings: #with:do:)!
@@ -1246,6 +1351,9 @@ ansiClass
 
 basicEncoding
 	^self extraInstanceSpec!
+
+characterForCodeUnit: anInteger
+	^self subclassResponsibility!
 
 codePage
 	"Answer the Windows code page constant for the receiver's encoding."
@@ -1272,7 +1380,7 @@ cr
 elementSize
 	"Answer the size of the elements of the receiver in bytes."
 
-	^self subclassResponsibility!
+	^1!
 
 empty
 	"Answer an empty String instance. It is shared and should not be modified.
@@ -1284,7 +1392,7 @@ empty
 encoding
 	"Answer a <Symbol> naming the encoding of instances of the receiver, which will be one of #ansi, #utf8, #utf16 or #utf32."
 
-	^self encodingName: self basicEncoding!
+	^Encodings at: self basicEncoding + 1!
 
 encodingName: anInteger
 	^Encodings at: anInteger + 1!
@@ -1622,11 +1730,12 @@ withAll: aCollectionOfCharacters
 	"Answer a new instance of the receiver containing all of the <Character> elements of the <collection>, aCollectionOfCharacters."
 
 	| stream |
-	stream := self writeStream: 10.
-	aCollectionOfCharacters readStream do: [:each | stream nextPut: each].
-	^stream contents! !
+	stream := self writeStream: aCollectionOfCharacters size.
+	aCollectionOfCharacters do: [:each | stream nextPut: each].
+	^stream grabContents! !
 !String class categoriesFor: #ansiClass!constants!public! !
 !String class categoriesFor: #basicEncoding!accessing!public! !
+!String class categoriesFor: #characterForCodeUnit:!enquiries!public! !
 !String class categoriesFor: #codePage!constants!public! !
 !String class categoriesFor: #coerceString:!instance creation!public! !
 !String class categoriesFor: #cr!constants!public! !

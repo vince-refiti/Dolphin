@@ -75,7 +75,7 @@ void ObjectMemory::compactObject(OTE* ote)
 				}
 			}
 		}
-		if (ote->heapSpace() == OTEFlags::Spaces::VirtualSpace)
+		if (ote->heapSpace() == Spaces::Virtual)
 		{
 			Interpreter::CompactVirtualObject(ote);
 		}
@@ -161,9 +161,9 @@ size_t ObjectMemory::compact(Oop* const sp)
 	// Using this, round up from the last used slot to the to commit granularity, then uncommit any later slots
 	// 
 	
-	OTE* end = (OTE*)_ROUND2(reinterpret_cast<ULONG_PTR>(m_pFreePointerList + 1), dwAllocationGranularity);
+	OTE* end = (OTE*)_ROUND2(reinterpret_cast<uintptr_t>(m_pFreePointerList + 1), dwAllocationGranularity);
 
-#ifdef _DEBUG
+#ifdef TRACKFREEOTEs
 	m_nFreeOTEs = end - m_pFreePointerList;
 #endif
 
@@ -176,7 +176,7 @@ size_t ObjectMemory::compact(Oop* const sp)
 	while (cur < end)
 	{
 		HARDASSERT(cur->isFree());
-		cur->m_location = reinterpret_cast<POBJECT>(cur + 1);
+		cur->m_location = MakeNextFree(cur+1);
 		cur++;
 	}
 

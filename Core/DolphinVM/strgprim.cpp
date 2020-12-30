@@ -266,6 +266,9 @@ Oop* __fastcall Interpreter::primitiveIndirectReplaceBytes(Oop* const sp, primar
 	return sp-4;
 }
 
+// ICU is known to fire the RTCC smaller type assignment check, e.g. from U8_NEXT. It is a false positive.
+#pragma runtime_checks("c", off)
+
 // Locate the next occurrence of the given character in the receiver between the specified indices.
 Oop* __fastcall Interpreter::primitiveStringNextIndexOfFromTo(Oop* const sp, primargcount_t)
 {
@@ -277,68 +280,239 @@ Oop* __fastcall Interpreter::primitiveStringNextIndexOfFromTo(Oop* const sp, pri
 		integerPointer = *(sp - 1);
 		if (ObjectMemoryIsIntegerObject(integerPointer))
 		{
-			SmallInteger from = ObjectMemoryIntegerValueOf(integerPointer);
+			const SmallInteger from = ObjectMemoryIntegerValueOf(integerPointer);
 
 			Oop valuePointer = *(sp - 2);
 
-			// TODO: Support other encodings
-
-			AnsiStringOTE* receiverPointer = reinterpret_cast<AnsiStringOTE*>(*(sp - 3));
-
 			Oop answer = ZeroPointer;
 			// If not a character, or the search interval is empty, we treat as not found
-			if ((ObjectMemory::fetchClassOf(valuePointer) == Pointers.ClassCharacter) && to >= from)
+			if ((ObjectMemory::fetchClassOf(valuePointer) == Pointers.ClassCharacter))
 			{
-				ASSERT(!receiverPointer->isPointers());
-
-				// Search a byte object
-
-				const SmallInteger length = receiverPointer->bytesSize();
-				// We can only be in here if to>=from, so if to>=1, then => from >= 1
-				// furthermore if to <= length then => from <= length
-				if (from >= 1 && to <= length)
+				CharOTE* oteChar = reinterpret_cast<CharOTE*>(valuePointer);
+				Character* charObj = oteChar->m_location;
+				if (to >= from)
 				{
-					// Search is in bounds, lets do it
-					CharOTE* oteChar = reinterpret_cast<CharOTE*>(valuePointer);
-					Character* charObj = oteChar->m_location;
-					// If not a byte char, can't possibly be in a byte string (treat as not found, rather than primitive failure)
-					if (charObj->Encoding == StringEncoding::Ansi)
+					StringOTE* oteReceiver = reinterpret_cast<StringOTE*>(*(sp - 3));
+					ASSERT(!oteReceiver->isPointers());
+
+					switch (oteReceiver->m_oteClass->m_location->m_instanceSpec.m_encoding)
 					{
-						const AnsiString::CU charValue = static_cast<AnsiString::CU>(charObj->CodeUnit);
-
-						AnsiString* chars = receiverPointer->m_location;
-
-						from--;
-						while (from < to)
+					case StringEncoding::Ansi:
+					{
+						AnsiStringOTE* oteAnsi = reinterpret_cast<AnsiStringOTE*>(oteReceiver);
+						const auto length = oteAnsi->sizeForRead();
+						// We can only be in here if to>=from, so if to>=1, then => from >= 1
+						// furthermore if to <= length then => from <= length
+						if (from >= 1 && static_cast<size_t>(to) <= length)
 						{
-							if (chars->m_characters[from++] == charValue)
+							// Search is in bounds, lets do it
+							Oop answer = ZeroPointer;
+							// If not a byte char, can't possibly be in a byte string (treat as not found, rather than primitive failure)
+							if (charObj->Encoding == StringEncoding::Ansi)
 							{
-								answer = ObjectMemoryIntegerObjectOf(from);
-								break;
+								const AnsiString::CU charValue = static_cast<AnsiString::CU>(charObj->CodeUnit);
+
+								AnsiString* chars = oteAnsi->m_location;
+
+								auto i = from - 1;
+								while (i < to)
+								{
+									if (chars->m_characters[i++] == charValue)
+									{
+										*(sp - 3) = ObjectMemoryIntegerObjectOf(i);
+										return sp - 3;
+									}
+								}
 							}
+
+							// Not found, drop through and return zero
+						}
+						else
+						{
+							// To/from out of bounds
+							return primitiveFailure(_PrimitiveFailureCode::OutOfBounds);
 						}
 					}
-				}
-				else
-				{
-					// To/from out of bounds
-					return primitiveFailure(_PrimitiveFailureCode::OutOfBounds);
+					break;
+
+					case StringEncoding::Utf8:
+					{
+						auto oteUtf = reinterpret_cast<Utf8StringOTE*>(oteReceiver);
+						const auto length = oteUtf->sizeForRead();
+						// We can only be in here if to>=from, so if to>=1, then => from >= 1
+						// furthermore if to <= length then => from <= length
+						// It is OK for from to point to a trail surrogate
+						if (from >= 1 && static_cast<size_t>(to) <= length)
+						{
+							// Search is in bounds, lets do it
+
+							if (__isascii(charObj->CodeUnit) || charObj->IsUtf8Surrogate)
+							{
+								// Can perform a fast byte search
+
+								uint8_t codeUnit = charObj->CodeUnit & 0xFF;
+								auto s = oteUtf->m_location->m_characters;
+								auto i = from - 1;
+								while (i < to)
+								{
+									if (s[i++] == codeUnit)
+									{
+										*(sp - 3) = ObjectMemoryIntegerObjectOf(i);
+										return sp - 3;
+									}
+								}
+							}
+							else if (!charObj->IsUtf16Surrogate)
+							{
+								// Slower search for a non-byte character
+
+								const auto codePoint = charObj->CodePoint;
+								const auto s = oteUtf->m_location->m_characters;
+								auto i = from - 1;
+								while (i < to)
+								{
+									char32_t c;
+									auto next = i;
+									
+									U8_NEXT(s, next, to, c)
+
+									if (c == codePoint)
+									{
+										*(sp - 3) = ObjectMemoryIntegerObjectOf(i + 1);
+										return sp - 3;
+									}
+									i = next;
+								}
+							}
+
+							// Not found or a UTF-16 surrogate. Drop through and return zero
+						}
+						else
+						{
+							// To/from out of bounds
+							return primitiveFailure(_PrimitiveFailureCode::OutOfBounds);
+						}
+					}
+					break;
+
+					case StringEncoding::Utf16:
+					{
+						auto oteUtf = reinterpret_cast<Utf16StringOTE*>(oteReceiver);
+						const auto length = oteUtf->sizeForRead();
+						// We can only be in here if to>=from, so if to>=1, then => from >= 1
+						// furthermore if to <= length then => from <= length
+						// It is OK for from to point to a trail surrogate
+						if (from >= 1 && static_cast<size_t>(to) <= length)
+						{
+							// Search is in bounds, lets do it
+
+							if (!charObj->IsUtfSurrogate)
+							{
+								auto codePoint = charObj->CodePoint;
+								auto s = oteUtf->m_location->m_characters;
+								auto i = from - 1;
+								while (i < to)
+								{
+									char32_t c;
+									size_t next = i;
+									U16_NEXT_UNSAFE(s, next, c)
+									if (c == codePoint)
+									{
+										*(sp - 3) = ObjectMemoryIntegerObjectOf(i + 1);
+										return sp - 3;
+									}
+									i = next;
+								}
+
+								// Not found. Drop through and return zero
+							}
+							else
+							{
+								if (charObj->IsUtf16Surrogate)
+								{
+									char16_t codeUnit = charObj->CodeUnit & 0xFFFF;
+									auto s = oteUtf->m_location->m_characters;
+									auto i = from - 1;
+									while (i < to)
+									{
+										if (s[i++] == codeUnit)
+										{
+											*(sp - 3) = ObjectMemoryIntegerObjectOf(i);
+											return sp - 3;
+										}
+									}
+								}
+								else
+								{
+									// A UTF-16 string can contain a UTF-16 surrogate, but not a UTF-8 surrogate
+								}
+
+								// Not found. Drop through and return zero
+							}
+						}
+						else
+						{
+							// To/from out of bounds
+							return primitiveFailure(_PrimitiveFailureCode::OutOfBounds);
+						}
+					}
+					break;
+
+					case StringEncoding::Utf32:
+					{
+						auto oteUtf = reinterpret_cast<Utf32StringOTE*>(oteReceiver);
+						const auto length = oteUtf->sizeForRead();
+						// We can only be in here if to>=from, so if to>=1, then => from >= 1
+						// furthermore if to <= length then => from <= length
+						if (from >= 1 && static_cast<size_t>(to) <= length)
+						{
+							// Search is in bounds, lets do it
+							auto codePoint = charObj->CodePoint;
+							auto s = oteUtf->m_location->m_characters;
+							auto i = from - 1;
+							while (i < to)
+							{
+								if (s[i++] == codePoint)
+								{
+									*(sp - 3) = ObjectMemoryIntegerObjectOf(i);
+									return sp - 3;
+								}
+							}
+
+							// Not found, drop through and return 0
+						}
+						else
+						{
+							// To/from out of bounds
+							return primitiveFailure(_PrimitiveFailureCode::OutOfBounds);
+						}
+					}
+					break;
+
+					default:
+						// Unrecognised encoding
+						__assume(false);
+						return primitiveFailure(_PrimitiveFailureCode::AssertionFailure);
+					}
 				}
 			}
 
-			*(sp - 3) = answer;
+			// Not a Character, or a surrogate Character of different encoding, or empty search interval
+			*(sp - 3) = ZeroPointer;
 			return sp - 3;
 		}
 		else
 		{
-			return primitiveFailure(_PrimitiveFailureCode::InvalidParameter1);				// from not an integer
+			return primitiveFailure(_PrimitiveFailureCode::InvalidParameter2);				// from not an integer
 		}
 	}
 	else
 	{
-		return primitiveFailure(_PrimitiveFailureCode::InvalidParameter2);				// to not an integer
+		return primitiveFailure(_PrimitiveFailureCode::InvalidParameter3);				// to not an integer
 	}
 }
+#pragma runtime_checks("c", restore)
+
 
 Oop* __fastcall Interpreter::primitiveStringAt(Oop* const sp, const primargcount_t argCount)
 {
@@ -348,7 +522,7 @@ Oop* __fastcall Interpreter::primitiveStringAt(Oop* const sp, const primargcount
 	{
 		SmallInteger index = ObjectMemoryIntegerValueOf(oopIndex) - 1;
 		AnsiStringOTE* oteReceiver = reinterpret_cast<AnsiStringOTE*>(*newSp);
-		switch (String::GetEncoding(oteReceiver))
+		switch (oteReceiver->m_oteClass->m_location->m_instanceSpec.m_encoding)
 		{
 		case StringEncoding::Ansi:
 			if (static_cast<size_t>(index) < oteReceiver->bytesSize())
@@ -487,7 +661,7 @@ Oop* __fastcall Interpreter::primitiveStringAtPut(Oop* const sp, primargcount_t)
 				SmallInteger code = ObjectMemoryIntegerValueOf(reinterpret_cast<const CharOTE*>(oopValue)->m_location->m_code);
 				char32_t codeUnit = code & 0x1fffff;
 
-				switch (ST::String::GetEncoding(oteReceiver))
+				switch (oteReceiver->m_oteClass->m_location->m_instanceSpec.m_encoding)
 				{
 				case StringEncoding::Ansi:
 					if (index < receiverSize)
@@ -635,7 +809,7 @@ Oop* __fastcall Interpreter::primitiveStringAtPut(Oop* const sp, primargcount_t)
 							{
 							case StringEncoding::Ansi:
 								// Non-ascii Ansi char into Utf16 string. Will always go.
-								psz[index] = m_ansiToUnicodeCharMap[codeUnit];
+								psz[index] = m_ansiToUnicodeCharMap[codeUnit & 0xff];
 								*newSp = oopValue;
 								return newSp;
 
@@ -869,7 +1043,7 @@ Oop* __fastcall Interpreter::primitiveHashBytes(Oop* const sp, primargcount_t)
 
 	if (receiver->isNullTerminated())
 	{
-		switch (ST::String::GetEncoding(receiver))
+		switch (receiver->m_oteClass->m_location->m_instanceSpec.m_encoding)
 		{
 		case StringEncoding::Ansi:
 		{
@@ -922,7 +1096,7 @@ extern "C" SmallInteger __cdecl HashBytes(const uint8_t* bytes, size_t size)
 Oop* __fastcall Interpreter::primitiveStringAsUtf16String(Oop* const sp, primargcount_t)
 {
 	const OTE* receiver = reinterpret_cast<const OTE*>(*sp);
-	switch (ST::String::GetEncoding(receiver))
+	switch (receiver->m_oteClass->m_location->m_instanceSpec.m_encoding)
 	{
 	case StringEncoding::Ansi:
 	{
@@ -964,7 +1138,7 @@ Oop * Interpreter::primitiveStringAsUtf8String(Oop * const sp, primargcount_t)
 {
 	const OTE* receiver = reinterpret_cast<const OTE*>(*sp);
 	BehaviorOTE* oteClass = receiver->m_oteClass;
-	switch (ST::String::GetEncoding(receiver))
+	switch (receiver->m_oteClass->m_location->m_instanceSpec.m_encoding)
 	{
 	case StringEncoding::Ansi:
 	{
@@ -1002,7 +1176,7 @@ Oop* __fastcall Interpreter::primitiveStringAsByteString(Oop* const sp, primargc
 {
 	const OTE* receiver = reinterpret_cast<const OTE*>(*sp);
 	BehaviorOTE* oteClass = receiver->m_oteClass;
-	switch (ST::String::GetEncoding(receiver))
+	switch (receiver->m_oteClass->m_location->m_instanceSpec.m_encoding)
 	{
 	case StringEncoding::Ansi:
 	{
@@ -1105,7 +1279,7 @@ Oop* Interpreter::primitiveStringConcatenate(Oop* const sp, primargcount_t)
 		{
 			// Should probably double-dispatch this rather than handling all this in one
 			// primitive, or at least define one primitive for each string class
-			switch (ENCODINGPAIR(ST::String::GetEncoding(oteReceiver), ST::String::GetEncoding(oteArg)))
+			switch (ENCODINGPAIR(oteReceiver->m_oteClass->m_location->m_instanceSpec.m_encoding, oteArg->m_oteClass->m_location->m_instanceSpec.m_encoding))
 			{
 			case ENCODINGPAIR(StringEncoding::Ansi, StringEncoding::Ansi):
 			{
@@ -1285,7 +1459,7 @@ Oop* Interpreter::primitiveStringConcatenate(Oop* const sp, primargcount_t)
 Oop* __fastcall Interpreter::primitiveStringAsUtf32String(Oop* const sp, primargcount_t)
 {
 	const OTE* receiver = reinterpret_cast<const OTE*>(*sp);
-	switch (ST::String::GetEncoding(receiver))
+	switch (receiver->m_oteClass->m_location->m_instanceSpec.m_encoding)
 	{
 	case StringEncoding::Ansi:
 	case StringEncoding::Utf8:

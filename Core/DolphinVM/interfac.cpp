@@ -19,11 +19,12 @@ Interpreter interface functions
 #include "InterprtProc.inl"
 #include "VMExcept.h"
 #include "thrdcall.h"
-#include "STArray.h"
+#include "VirtualMemoryStats.h"
 
 const wchar_t* SZREGKEYBASE = L"Software\\Object Arts\\Dolphin Smalltalk 7.1";
 
 // Smalltalk classes
+#include "STArray.h"
 #include "STByteArray.h"
 #include "STString.h"		// For instantiating new strings
 #include "STInteger.h"		// Use to create new integer, also for winproc return
@@ -165,13 +166,13 @@ Oop __stdcall Interpreter::callback(SymbolOTE* selector, argcount_t argCount TRA
 #ifdef USESETJMP
 		break;
 
-	case SE_VMCALLBACKEXIT:
+	case static_cast<int>(VMExceptions::CallbackExit):
 		// Pop the top of the callback context stack
 		currentCallbackContext = prevCallbackContext;
 		wakePendingCallbacks();
 		break;
 
-	case SE_VMCALLBACKUNWIND:
+	case static_cast<int>(VMExceptions::CallbackUnwind):
 	default:
 		return Oop(Pointers.Nil);
 	}
@@ -212,9 +213,9 @@ int Interpreter::callbackTerminationFilter(LPEXCEPTION_POINTERS info, Process* c
 {
 	EXCEPTION_RECORD* pExRec = info->ExceptionRecord;
 
-	switch (pExRec->ExceptionCode)
+	switch (static_cast<VMExceptions>(pExRec->ExceptionCode))
 	{
-		case SE_VMCALLBACKEXIT:
+		case VMExceptions::CallbackExit:
 		{
 			// Its a callback exception, now lets see if its in sync.
 			if (callbackProcess == actualActiveProcess())
@@ -234,7 +235,7 @@ int Interpreter::callbackTerminationFilter(LPEXCEPTION_POINTERS info, Process* c
 			}
 			break;
 		}
-		case SE_VMCALLBACKUNWIND:			// N.B. Similar, but subtly different (we continue the search)
+		case VMExceptions::CallbackUnwind:			// N.B. Similar, but subtly different (we continue the search)
 		{
 			// Its a callback unwind, now lets see if its in sync.
 			if (callbackProcess == actualActiveProcess())
@@ -383,7 +384,7 @@ Oop	__stdcall Interpreter::performWithArguments(Oop receiver, SymbolOTE* selecto
 // Allocate a new four byte object of the specified (unref counted) class from the DWORD pool
 BytesOTE* __fastcall Interpreter::NewUint32(uint32_t value, BehaviorOTE* classPointer)
 {
-	BytesOTE* ote = m_otePools[DWORDPOOL].newByteObject(classPointer, sizeof(uint32_t), OTEFlags::DWORDSpace);
+	BytesOTE* ote = m_otePools[static_cast<size_t>(Pools::Dwords)].newByteObject(classPointer, sizeof(uint32_t), Spaces::Dwords);
 	ASSERT(ObjectMemory::hasCurrentMark(ote));
 
 	// Assign class as this can differ in this particular pool, which is used for all manner of 32-bit objects
@@ -581,7 +582,6 @@ LRESULT CALLBACK Interpreter::DolphinWndProc(HWND hWnd, UINT uMsg, WPARAM wParam
 	return lResult;
 }
 
-
 ///////////////////////////////////////////////////////////////////////////////
 // Exception filter for uses of the callback() routine. Handles memory errors due to 
 // OT/process stack overflow, and passes control to the user defined exception handler
@@ -594,10 +594,13 @@ int __stdcall Interpreter::callbackExceptionFilter(LPEXCEPTION_POINTERS info)
 	EXCEPTION_RECORD* pExRec = info->ExceptionRecord;
 	switch(pExRec->ExceptionCode)
 	{
-		case SE_VMCALLBACKUNWIND:
+		case static_cast<DWORD>(VMExceptions::CallbackUnwind):
 			// Abnormal exit from callback (unwind not return)
 			resizeActiveProcess();
 			return EXCEPTION_EXECUTE_HANDLER;
+
+		case STATUS_NO_MEMORY:
+			return OutOfMemory(info);
 
 		case EXCEPTION_ACCESS_VIOLATION:
 #if !defined(NO_GPF_TRAP)
@@ -610,9 +613,9 @@ int __stdcall Interpreter::callbackExceptionFilter(LPEXCEPTION_POINTERS info)
 }
 
 
-inline uintptr_t __stdcall Interpreter::GenericCallbackMain(SmallInteger id, uint8_t* lpArgs)
+inline LRESULT __stdcall Interpreter::GenericCallbackMain(SmallInteger id, uint8_t* lpArgs)
 {
-	uintptr_t result;
+	LRESULT result;
 	__try
 	{
 		// All accesses to stack/OT allocations must be inside the
@@ -642,15 +645,15 @@ inline uintptr_t __stdcall Interpreter::GenericCallbackMain(SmallInteger id, uin
 
 LRESULT CALLBACK Interpreter::VMWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-	switch(uMsg)
+	switch(static_cast<VmWndMsgs>(uMsg))
 	{
-	case SyncMsg:
+	case VmWndMsgs::Sync:
 		return DolphinWndProc(hWnd, uMsg, wParam, lParam);
 		break;
-	case SyncCallbackMsg:
+	case VmWndMsgs::SyncCallback:
 		return GenericCallbackMain(static_cast<SmallInteger>(wParam), reinterpret_cast<uint8_t*>(lParam));
 		break;
-	case SyncVirtualMsg:
+	case VmWndMsgs::SyncVirtual:
 		return VirtualCallbackMain(static_cast<SmallInteger>(wParam), reinterpret_cast<COMThunk**>(lParam));
 		break;
 	default:
@@ -661,14 +664,14 @@ LRESULT CALLBACK Interpreter::VMWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 ///////////////////////////////////////////////////////////////////////////////
 // GenericCallback is the routine used for constructing function pointers for passing to external
 // libraries as callback functions.
-uintptr_t __stdcall Interpreter::GenericCallback(SmallInteger id, uint8_t* lpArgs)
+LRESULT __stdcall Interpreter::GenericCallback(SmallInteger id, uint8_t* lpArgs)
 {
-	uintptr_t result;
+	LRESULT result;
 	// We must perform this all inside our standard SEH catcher to handle the stack/OT overflows etc 
 	// As we have entered from an external function
 	if (GetCurrentThreadId() != MainThreadId())
 	{
-		result = SendMessage(m_hWndVM, SyncCallbackMsg, static_cast<WPARAM>(id), reinterpret_cast<LPARAM>(lpArgs));
+		result = SendMessage(m_hWndVM, static_cast<UINT>(VmWndMsgs::SyncCallback), static_cast<WPARAM>(id), reinterpret_cast<LPARAM>(lpArgs));
 	}
 	else
 		result = GenericCallbackMain(id, lpArgs);
@@ -677,7 +680,7 @@ uintptr_t __stdcall Interpreter::GenericCallback(SmallInteger id, uint8_t* lpArg
 }
 
 
-uintptr_t Interpreter::callbackResultFromOop(Oop objectPointer)
+LRESULT Interpreter::callbackResultFromOop(Oop objectPointer)
 {
 	if (ObjectMemoryIsIntegerObject(objectPointer))
 		// The result is a SmallInteger (the most common answer we hope)
@@ -731,7 +734,7 @@ Oop* __fastcall Interpreter::primitiveReturnFromCallback(Oop* const sp, primargc
 		if (callbackCookie == currentCallbackContext)
 		{
 			int* pJumpBuf = reinterpret_cast<int*>(callbackCookie ^ 1);
-			longjmp(pJumpBuf, SE_VMCALLBACKEXIT);
+			longjmp(pJumpBuf, static_cast<int>(VMExceptions::CallbackExit));
 
 			// Can't get here
 			__assume(false);
@@ -743,7 +746,7 @@ Oop* __fastcall Interpreter::primitiveReturnFromCallback(Oop* const sp, primargc
 			{
 				// I don't think this is used any more. The cookie will always be non-zero
 
-				::RaiseException(SE_VMCALLBACKEXIT, 0, 1, reinterpret_cast<const ULONG_PTR*>(&callbackCookie));
+				::RaiseException(static_cast<DWORD>(VMExceptions::CallbackExit), 0, 1, reinterpret_cast<const ULONG_PTR*>(&callbackCookie));
 
 				// Push the cookie argument back on the stack
 				*(sp + 1) = callbackCookie;
@@ -777,7 +780,7 @@ Oop* __fastcall Interpreter::primitiveUnwindCallback(Oop* const sp, primargcount
 		// Is it current callback ?
 		if (callbackCookie == currentCallbackContext || callbackCookie == ZeroPointer)
 		{
-			::RaiseException(SE_VMCALLBACKUNWIND, 0, 1, reinterpret_cast<const ULONG_PTR*>(&callbackCookie));
+			::RaiseException(static_cast<DWORD>(VMExceptions::CallbackUnwind), 0, 1, reinterpret_cast<const ULONG_PTR*>(&callbackCookie));
 
 			// Note that the exception handler never executes handler, but may return here(if not continues search)
 
@@ -800,26 +803,26 @@ Oop* __fastcall Interpreter::primitiveUnwindCallback(Oop* const sp, primargcount
 ///////////////////////////////////////////////////////////////////////////////
 // Virtual function call-ins
 
-uintptr_t __fastcall Interpreter::VirtualCallback(SmallInteger offset, COMThunk** args)
+LRESULT __fastcall Interpreter::VirtualCallback(SmallInteger offset, COMThunk** args)
 {
-		uintptr_t result;
-		// We must perform this all inside our standard SEH catcher to handle the stack/OT overflows etc 
-		// As we have entered from an external function
-		if (GetCurrentThreadId() != MainThreadId())
-		{
-			result = SendMessage(m_hWndVM, SyncVirtualMsg, static_cast<WPARAM>(offset), reinterpret_cast<LPARAM>(args));
-		}
-		else
-			result = VirtualCallbackMain(offset, args);
+	LRESULT result;
+	// We must perform this all inside our standard SEH catcher to handle the stack/OT overflows etc 
+	// As we have entered from an external function
+	if (GetCurrentThreadId() != MainThreadId())
+	{
+		result = SendMessage(m_hWndVM, static_cast<UINT>(VmWndMsgs::SyncVirtual), static_cast<WPARAM>(offset), reinterpret_cast<LPARAM>(args));
+	}
+	else
+		result = VirtualCallbackMain(offset, args);
 
-		return result;
+	return result;
 }
 
-uintptr_t __fastcall Interpreter::VirtualCallbackMain(SmallInteger offset, COMThunk** args)
+LRESULT __fastcall Interpreter::VirtualCallbackMain(SmallInteger offset, COMThunk** args)
 {
 	// We must perform this all inside our standard SEH catcher to handle the stack/OT overflows etc 
 	// and also to handle unwinds
-	uintptr_t result;
+	LRESULT result;
 	__try
 	{
 		pushObject((OTE*)Pointers.Scheduler);
@@ -872,7 +875,7 @@ void InitializeVtbl()
 	aVtblThunks = static_cast<VTblThunk*>(::VirtualAlloc(NULL, NUMVTBLENTRIES*sizeof(VTblThunk), MEM_COMMIT, PAGE_READWRITE));
 	if (aVtblThunks == nullptr)
 	{
-		RaiseFatalError(IDP_OUTOFVIRTUALMEMORY, 0);
+		::RaiseException(STATUS_NO_MEMORY, EXCEPTION_NONCONTINUABLE, 0, nullptr);
 		return;
 	}
 

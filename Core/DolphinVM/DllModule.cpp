@@ -56,6 +56,7 @@ HRESULT RegisterClassHelper(const CLSID& clsid, LPCTSTR lpszProgID, LPCTSTR lpsz
 
 	LPCTSTR szClsid = OLE2T(lpOleStr);
 	CRegKey key;
+	LONG lRes = 0;
 
 	hRes = RegisterProgID(szClsid, lpszProgID, szDesc);
 	if (FAILED(hRes))
@@ -69,7 +70,7 @@ HRESULT RegisterClassHelper(const CLSID& clsid, LPCTSTR lpszProgID, LPCTSTR lpsz
 		goto end;
 	}
 
-	LONG lRes = key.Open(HKEY_CLASSES_ROOT, _T("CLSID"), KEY_READ | KEY_WRITE);
+	lRes = key.Open(HKEY_CLASSES_ROOT, _T("CLSID"), KEY_READ | KEY_WRITE);
 	if (lRes != ERROR_SUCCESS)
 	{
 		hRes = AtlHresultFromWin32(lRes);
@@ -218,6 +219,7 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE hInstance, DWORD dwReason, LPVOID lpRes
     return _Module.DllMain(dwReason, lpReserved); 
 }
 
+__control_entrypoint(DllExport)
 STDAPI DllCanUnloadNow(void)
 {
 	HRESULT hr;
@@ -242,6 +244,7 @@ STDAPI DllCanUnloadNow(void)
 	return hr;
 }
 
+_Check_return_
 STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv)
 {
 #ifdef _MERGE_PROXYSTUB

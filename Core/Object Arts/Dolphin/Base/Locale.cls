@@ -299,7 +299,12 @@ durationFormatters
 	formatters)!
 
 englishDisplayName
-	"The name of the locale in English."
+	"The <String> full name of the locale in English."
+
+	^self subclassResponsibility!
+
+englishLanguageName
+	"The <String> name of the language in English."
 
 	^self subclassResponsibility!
 
@@ -401,10 +406,14 @@ negativeSign
 numberFormat
 	^numberFormat
 		ifNil: 
-			[numberFormat := self getNumberFormat.
+			[self numberFormat: self getNumberFormat.
 			numberFormat isImmutable: true.
 			numberFormat bytes isImmutable: true.
 			numberFormat]!
+
+numberFormat: aNUMBERFORMATWOrNil
+	<mutable>
+	numberFormat := aNUMBERFORMATWOrNil!
 
 numberGrouping
 	"Answer a <string> which describes the way in which number digits should be grouped in the receiver locale. The format string consists of a series of integers specifying from left to right how many digits of the number should be formed into a group before the next group (if needed), each group being separated by the 'thousands' separator for the locale. There can be up to 9 characters in the string. If the last character is zero, then the preceding group specification is repeated.
@@ -497,27 +506,46 @@ printDuration: aDuration on: aWriteStream format: aString
 		alphabet: '-+dhHmsSfF'
 		formatters: self durationFormatters!
 
-printFloat: aFloat on: aStream format: aNUMBERFMT
-	"Append, to aStream, a String whose characters are a representation of the <Float> argument, aFloat, in <integer> base, baseInteger, using the formatting instructions specified by the <NUMBERFMT>, aNUMBERFMT."
+printFloat: aFloat
+	"Answer a <String> representation of the <Float> argument in the format defined for this locale."
 
-	| classification invariant size localized lib |
+	^self
+		printFloat: aFloat
+		format: self numberFormat
+		lcid: self lcid!
+
+printFloat: aFloat format: aNUMBERFMT
+	^self
+		printFloat: aFloat
+		format: aNUMBERFMT
+		lcid: self lcid!
+
+printFloat: aFloat format: aNUMBERFMT lcid: lcidInteger
+	"Answer a <String> representation of the <Float> first argument in the format defined by the <NUMBERFMTW> 2nd argument. 
+	If the number is negative, then the negative sign used is that associated with the locale identified by the <integer> LCID 3rd argument."
+
+	"Implementation Note: I tried adding a primitive for this with code similar to that below, although failing for NaNs and Infinities, using the CRT _gcvt function to perform the initial conversion of the Float to an invariant String before the locale specific formatting is applied. Interestingly it actually runs more slowly!! This suggests that _gcvt is not very efficient."
+
+	| localized classification size lib invariant |
 	classification := aFloat fpClass.
-	(classification anyMask: Float.FpClassNaN)
-		ifTrue: 
-			[aStream nextPutAll: self nan.
-			^self].
-	(classification anyMask: Float.FpClassInfinite)
-		ifTrue: 
-			[aStream nextPutAll: ((classification anyMask: Float.FpClassNegative)
+	(classification anyMask: Float.FpClassFinite)
+		ifFalse: 
+			[^(classification anyMask: Float.FpClassNaN)
+				ifTrue: [self nan]
+				ifFalse: 
+					["Not a NaN, so must be infinite"
+					(classification anyMask: Float.FpClassNegative)
 						ifTrue: [self negativeInfinity]
-						ifFalse: [self infinity]).
-			^self].
+						ifFalse: [self infinity]]].
 	"The Windows API takes a string as input in a canonical form"
-	invariant := ((classification anyMask: Float.FpClassZero)
-				ifTrue: [(classification anyMask: Float.FpClassNegative) ifTrue: ['-0.0'] ifFalse: ['0.0']]
+	invariant := (classification anyMask: Float.FpClassZero)
+				ifTrue: 
+					[(classification anyMask: Float.FpClassNegative)
+						ifTrue: [##('-0.0' asUtf16String)]
+						ifFalse: [##('0.0' asUtf16String)]]
 				ifFalse: 
 					[| stream |
-					stream := String writeStream: 30.
+					stream := WriteStream on: (Utf16String new: 18).
 					((classification anyMask: Float.FpClassNegative)
 						ifTrue: 
 							[stream nextPut: $-.
@@ -525,13 +553,12 @@ printFloat: aFloat on: aStream format: aNUMBERFMT
 						ifFalse: [aFloat])
 							absPrintOn: stream
 							base: 10
-							digitCount: 16
+							digitCount: 17
 							decimalExponents: ##(SmallInteger minimum to: SmallInteger maximum).
-					stream contents])
-					asUtf16String.
+					stream grabContents].
 	lib := KernelLibrary default.
 	size := lib
-				getNumberFormat: self lcid
+				getNumberFormat: lcidInteger
 				dwFlags: 0
 				lpValue: invariant
 				lpFormat: aNUMBERFMT
@@ -540,13 +567,21 @@ printFloat: aFloat on: aStream format: aNUMBERFMT
 	size == 0 ifTrue: [^lib systemError].
 	localized := Utf16String new: size - 1.
 	lib
-		getNumberFormat: self lcid
+		getNumberFormat: lcidInteger
 		dwFlags: 0
 		lpValue: invariant
 		lpFormat: aNUMBERFMT
 		lpNumberStr: localized
 		cchNumber: size.
-	aStream nextPutAll: localized!
+	^localized!
+
+printFloat: aFloat on: aStream format: aNUMBERFMT
+	"Append, to aStream, a String whose characters are a representation of the <Float> argument, aFloat, in <integer> base, baseInteger, using the formatting instructions specified by the <NUMBERFMT>, aNUMBERFMT."
+
+	aStream nextPutAll: (self
+				printFloat: aFloat
+				format: aNUMBERFMT
+				lcid: self lcid)!
 
 printFractionalPart: aFraction on: aStream places: anInteger
 	| fractionPart |
@@ -562,12 +597,6 @@ printFractionalPart: aFraction on: aStream places: anInteger
 				next: count
 					putAll: digits
 					startingAt: 1]!
-
-printFractionPart2: s on: stream places: i
-	self
-		printFractionalPart: s
-		on: stream
-		places: i!
 
 printTime: aTime on: aWriteStream format: aString
 	"Append to the <puttableStream>, aWriteStream, a <String> whose characters are a representation of the <Time> argument, aTime, formatted according to the format characters listed in the <String>, aString.
@@ -649,6 +678,7 @@ yearMonthFormat
 !Locale categoriesFor: #durationFormat!constants!public! !
 !Locale categoriesFor: #durationFormatters!printing!private! !
 !Locale categoriesFor: #englishDisplayName!constants!public! !
+!Locale categoriesFor: #englishLanguageName!constants!public! !
 !Locale categoriesFor: #firstDayOfWeek!constants!public! !
 !Locale categoriesFor: #getNumberFormat!helpers!private! !
 !Locale categoriesFor: #hasLeadingZero!constants!public! !
@@ -668,6 +698,7 @@ yearMonthFormat
 !Locale categoriesFor: #negativeNumberMode!constants!public! !
 !Locale categoriesFor: #negativeSign!constants!public! !
 !Locale categoriesFor: #numberFormat!constants!public! !
+!Locale categoriesFor: #numberFormat:!accessing!private! !
 !Locale categoriesFor: #numberGrouping!constants!public! !
 !Locale categoriesFor: #percentSymbol!constants!public! !
 !Locale categoriesFor: #pmDesignator!constants!public! !
@@ -675,9 +706,11 @@ yearMonthFormat
 !Locale categoriesFor: #printDate:on:format:!printing!public! !
 !Locale categoriesFor: #printDateTime:on:format:!printing!public! !
 !Locale categoriesFor: #printDuration:on:format:!printing!public! !
+!Locale categoriesFor: #printFloat:!printing!public! !
+!Locale categoriesFor: #printFloat:format:!printing!public! !
+!Locale categoriesFor: #printFloat:format:lcid:!printing!public! !
 !Locale categoriesFor: #printFloat:on:format:!printing!public! !
 !Locale categoriesFor: #printFractionalPart:on:places:!printing!private! !
-!Locale categoriesFor: #printFractionPart2:on:places:!printing!private! !
 !Locale categoriesFor: #printTime:on:format:!printing!public! !
 !Locale categoriesFor: #shortAmDesignator!constants!public! !
 !Locale categoriesFor: #shortDateFormat!constants!public! !
@@ -767,7 +800,10 @@ onStartup
 	information (e.g. Dates and Times). Can be sent at other times
 	if the Locale has been changed."
 
-	TimeZoneInfo := UserDefault := SystemDefault := nil!
+	self withAllSubclassesDo: [:each | each reset]!
+
+reset
+	TimeZoneInfo := nil!
 
 smalltalk
 	"Answer the special 'Smalltalk' locale instance. This isn't a real Locale, but is configured to print Floats, etc, in Smalltalk syntax."
@@ -810,6 +846,7 @@ userDefault: aLocale
 !Locale class categoriesFor: #onPreStripImage!class hierarchy-removing!private! !
 !Locale class categoriesFor: #onSettingChanged:!event handling!private! !
 !Locale class categoriesFor: #onStartup!event handling!private! !
+!Locale class categoriesFor: #reset!initializing!private! !
 !Locale class categoriesFor: #smalltalk!instance creation!public! !
 !Locale class categoriesFor: #supportedSystemLocales!enquiries!private! !
 !Locale class categoriesFor: #systemDefault!instance creation!public! !

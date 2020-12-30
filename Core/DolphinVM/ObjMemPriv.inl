@@ -19,7 +19,7 @@
 inline POBJECT ObjectMemory::allocChunk(size_t chunkSize)
 {
 	#if defined(PRIVATE_HEAP)
-		POBJECT pObj = static_cast<POBJECT>(::HeapAlloc(m_hHeap, HEAP_NO_SERIALIZE, chunkSize));
+		POBJECT pObj = static_cast<POBJECT>(::HeapAlloc(m_hHeap, 0, chunkSize));
 		#ifdef _DEBUG
 			memset(pObj, 0xCD, chunkSize);
 		#endif
@@ -38,12 +38,12 @@ inline POBJECT ObjectMemory::allocSmallChunk(size_t chunkSize)
 #endif
 
 	ASSERT(chunkSize <= MaxSmallObjectSize);
-	return chunkSize > MaxSizeOfPoolObject 
-		? static_cast<POBJECT>(__sbh_alloc_block(chunkSize))
-		: chunkSize == 0 
+	return chunkSize <= MaxSizeOfPoolObject 
+		? (chunkSize == 0 
 				? &emptyObj
 				: // Use chunk pools, which are fast but can cause memory fragmentation
-					spacePoolForSize(chunkSize).allocate();
+					spacePoolForSize(chunkSize).allocate())
+		: static_cast<POBJECT>(__sbh_alloc_block(chunkSize));
 }
 
 inline void ObjectMemory::freeSmallChunk(POBJECT pBlock, size_t size)
@@ -53,17 +53,17 @@ inline void ObjectMemory::freeSmallChunk(POBJECT pBlock, size_t size)
 #endif
 
 	ASSERT(size <= MaxSmallObjectSize);
-	if (size > MaxSizeOfPoolObject)
+	if (size <= MaxSizeOfPoolObject)
+	{
+		if (pBlock != &emptyObj)
+			spacePoolForSize(size).deallocate(pBlock);
+	}
+	else
 	{
 		// Locate and dealloc SBH block
 		PHEADER pHeader = __sbh_find_block(pBlock);
 		ASSERT(pHeader != NULL);
-	    __sbh_free_block(pHeader, pBlock);
-	}
-	else
-	{
-		if (pBlock != &emptyObj)
-			spacePoolForSize(size).deallocate(pBlock);
+		__sbh_free_block(pHeader, pBlock);
 	}
 }
 
@@ -72,18 +72,21 @@ inline void ObjectMemory::freeSmallChunk(POBJECT pBlock, size_t size)
 
 inline OTE* __fastcall ObjectMemory::allocateOop(POBJECT pLocation)
 {
-	// OT is globally shared, so access must be in crit section
-//	ASSERT(m_nInCritSection > 0);
-	ASSERT(m_pFreePointerList != NULL);
+	__assume(m_pFreePointerList != nullptr);
 
 	// N.B. By not ref. counting class here, we make a useful saving of a redundant
 	// ref. counting operation in primitiveNew and primitiveNewWithArg
 
 	OTE* ote = m_pFreePointerList;
-	m_pFreePointerList = reinterpret_cast<OTE*>(ote->m_location);
+
+	m_pFreePointerList = NextFree(ote);
 
 	ASSERT(ote->isFree());
-	_ASSERTE(--m_nFreeOTEs >= 0);
+#ifdef TRACKFREEOTEs
+	--m_nFreeOTEs;
+	assert(m_nFreeOTEs >= 0);
+	//assert(m_nFreeOTEs == CountFreeOTEs());
+#endif
 
 	// Set OTE fields of the Oop
 	ote->m_location = pLocation;
@@ -91,7 +94,7 @@ inline OTE* __fastcall ObjectMemory::allocateOop(POBJECT pLocation)
 	// Maintain the last used garbage collector mark to speed up collections
 	// Doing this will also reset the free bit and set the pointer bit
 	// so byte allocations will need to reset it
-	ote->m_flagsWord = *reinterpret_cast<uint8_t*>(&m_spaceOTEBits[OTEFlags::PoolSpace]);
+	ote->m_flagsWord = *reinterpret_cast<uint8_t*>(&m_spaceOTEBits[static_cast<space_t>(Spaces::Pools)]);
 
 	return ote;
 }

@@ -37,9 +37,8 @@ ccmSetVersion: anInteger
 	^self sendMessage: CCM_SETVERSION wParam: anInteger lParam: 0!
 
 clearHandle
-	super clearHandle.
-	oldWndProc := nil
-	!
+	oldWndProc := nil.
+	super clearHandle!
 
 commonNotificationMap
 	"Private - Answer a 'map' between notification codes and the selector of the corresponding event handlers in the receiver. 
@@ -71,7 +70,13 @@ commonNotificationMap
 		at: NM_KEYDOWN put: #nmKeyDown:;
 		at: NM_RELEASEDCAPTURE put: #nmDummy:;
 		at: NM_SETCURSOR put: #nmDummy:;
-		at: NM_CHAR put: #nmDummy:.
+		at: NM_CHAR put: #nmDummy:;
+		at: NM_TOOLTIPSCREATED put: #nmDummy:;
+		at: NM_LDOWN put: #nmDummy:;
+		at: NM_RDOWN put: #nmDummy:;
+		at: NM_THEMECHANGED put: #nmDummy:;
+		at: NM_FONTCHANGED put: #nmDummy:;
+		at: NM_CUSTOMTEXT put: #nmDummy:.
 
 	"Tooltip support - because these are discontinuous, we can't use an array for the lookup table here"
 	nmMap at: TTN_GETDISPINFOW put: #ttnGetDispInfoW:.
@@ -133,6 +138,13 @@ forecolor: aColorOrNil
 	forecolor := aColorOrNil.
 	self invalidate.
 !
+
+getFont
+	"Private - Get the control's current font."
+
+	| hFont |
+	hFont := self sendMessage: WM_GETFONT.
+	^hFont == 0 ifTrue: [Font system] ifFalse: [Font fromHandle: hFont]!
 
 itemFromId: dwItemSpec 
 	"Private - Answers the sub-item of the receiver with the specified <integer> item spec,
@@ -414,6 +426,7 @@ wmWindowPosChanged: message wParam: wParam lParam: lParam
 !ControlView categoriesFor: #fontChanged!public!updating! !
 !ControlView categoriesFor: #forecolor!accessing!public! !
 !ControlView categoriesFor: #forecolor:!accessing!public! !
+!ControlView categoriesFor: #getFont!accessing!private! !
 !ControlView categoriesFor: #itemFromId:!accessing!private! !
 !ControlView categoriesFor: #nmClick:!event handling-win32!private! !
 !ControlView categoriesFor: #nmCustomDraw:!event handling-win32!private! !

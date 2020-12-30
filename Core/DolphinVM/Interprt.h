@@ -96,7 +96,7 @@ public:
 	// To allow the ObjectMemory to account for objects referenced from the VM we maintain an "Array"
 	// to keep the ref. count on our behalf
 	//
-	enum { INITIALVMREFERENCES = 16 };
+	static constexpr size_t INITIALVMREFERENCES = 16;
 
 public:
 	#if defined(_DEBUG)
@@ -150,16 +150,16 @@ public:
 	static LRESULT CALLBACK CbtFilterHook(int code, WPARAM wParam, LPARAM lParam);
 	static void subclassWindow(OTE* window, HWND hWnd);
 
-	static uintptr_t callbackResultFromOop(Oop objectPointer);
+	static LRESULT callbackResultFromOop(Oop objectPointer);
 
-	enum
+	enum class VmWndMsgs : UINT
 	{
-		SyncMsg = WM_USER,
-		SyncCallbackMsg,
-		SyncVirtualMsg
+		Sync = WM_USER,
+		SyncCallback,
+		SyncVirtual
 	};
-	static uintptr_t __stdcall GenericCallbackMain(SmallInteger id, uint8_t* lpArgs);
-	static uintptr_t __stdcall GenericCallback(SmallInteger id, uint8_t* lpArgs);
+	static LRESULT __stdcall GenericCallbackMain(SmallInteger id, uint8_t* lpArgs);
+	static LRESULT __stdcall GenericCallback(SmallInteger id, uint8_t* lpArgs);
 
 	struct COMThunk
 	{
@@ -169,8 +169,8 @@ public:
 		uint32_t	subId;
 	};
 
-	static uintptr_t __fastcall VirtualCallback(SmallInteger offset, COMThunk** thisPtr);
-	static uintptr_t __fastcall VirtualCallbackMain(SmallInteger offset, COMThunk** thisPtr);
+	static LRESULT __fastcall VirtualCallback(SmallInteger offset, COMThunk** thisPtr);
+	static LRESULT __fastcall VirtualCallbackMain(SmallInteger offset, COMThunk** thisPtr);
 
 	// CompiledMethod bytecode decoding (in decode.cpp)
 	#if defined(_DEBUG)
@@ -258,32 +258,33 @@ public:
 
 public:
 
-	enum VMInterrupts { 
-						VMI_TERMINATE = ObjectMemoryIntegerObjectOf(1),
-						VMI_STACKOVERFLOW = ObjectMemoryIntegerObjectOf(2), 
-						VMI_BREAKPOINT = ObjectMemoryIntegerObjectOf(3),
-						VMI_SINGLESTEP = ObjectMemoryIntegerObjectOf(4),
-						VMI_ACCESSVIOLATION = ObjectMemoryIntegerObjectOf(5), 
-						VMI_IDLEPANIC = ObjectMemoryIntegerObjectOf(6),
-						VMI_GENERIC = ObjectMemoryIntegerObjectOf(7),
-						VMI_STARTED = ObjectMemoryIntegerObjectOf(8),
-						VMI_KILL = ObjectMemoryIntegerObjectOf(9),
-						VMI_FPFAULT = ObjectMemoryIntegerObjectOf(10),
-						VMI_USERINTERRUPT = ObjectMemoryIntegerObjectOf(11),
-						VMI_ZERODIVIDE = ObjectMemoryIntegerObjectOf(12),
-						VMI_OTOVERFLOW = ObjectMemoryIntegerObjectOf(13),
-						VMI_CONSTWRITE = ObjectMemoryIntegerObjectOf(14),
+	enum class VMInterrupts : SmallInteger { 
+						Terminate = ObjectMemoryIntegerObjectOf(1),
+						StackOverflow = ObjectMemoryIntegerObjectOf(2), 
+						Breakpoint = ObjectMemoryIntegerObjectOf(3),
+						SingleStep = ObjectMemoryIntegerObjectOf(4),
+						AccessViolation = ObjectMemoryIntegerObjectOf(5), 
+						IdlePanic = ObjectMemoryIntegerObjectOf(6),
+						Generic = ObjectMemoryIntegerObjectOf(7),
+						Started = ObjectMemoryIntegerObjectOf(8),
+						Kill = ObjectMemoryIntegerObjectOf(9),
+						FpFault = ObjectMemoryIntegerObjectOf(10),
+						UserInterrupt = ObjectMemoryIntegerObjectOf(11),
+						ZeroDivide = ObjectMemoryIntegerObjectOf(12),
+						OtOverflow = ObjectMemoryIntegerObjectOf(13),
+						ConstWrite = ObjectMemoryIntegerObjectOf(14),
 						// Miscellaneous exceptions
-						VMI_EXCEPTION = ObjectMemoryIntegerObjectOf(15),
-						VMI_FPSTACK = ObjectMemoryIntegerObjectOf(16),
-						VMI_NOMEMORY = ObjectMemoryIntegerObjectOf(17),
-						VMI_HOSPICECRISIS = ObjectMemoryIntegerObjectOf(18),
-						VMI_BEREAVEDCRISIS = ObjectMemoryIntegerObjectOf(19),
-						VMI_CRTFAULT = ObjectMemoryIntegerObjectOf(20)
+						Exception = ObjectMemoryIntegerObjectOf(15),
+						FpStack = ObjectMemoryIntegerObjectOf(16),
+						NoMemory = ObjectMemoryIntegerObjectOf(17),
+						HospiceCrisis = ObjectMemoryIntegerObjectOf(18),
+						BereavedCrisis = ObjectMemoryIntegerObjectOf(19),
+						CrtFault = ObjectMemoryIntegerObjectOf(20)
 						};
 
 #ifdef _DEBUG
-	static const char* InterruptNames[static_cast<size_t>(VMI_CRTFAULT) + 1];
+	static constexpr size_t NumInterrupts = static_cast<size_t>(VMInterrupts::CrtFault) + 1;
+	static const char* InterruptNames[NumInterrupts];
 #endif
 
 	static bool __fastcall disableInterrupts(bool bDisable);
@@ -333,21 +334,20 @@ private:
 	
 	static void exitSmalltalk(int exitCode);
 
-	static int interpreterExceptionFilter(LPEXCEPTION_POINTERS info);
-	static int memoryExceptionFilter(LPEXCEPTION_POINTERS pExInfo);
-	static int callbackTerminationFilter(LPEXCEPTION_POINTERS info, Process* callbackProcess, Oop prevCallbackContext);
+	static int interpreterExceptionFilter(const LPEXCEPTION_POINTERS info);
+	static int memoryExceptionFilter(const LPEXCEPTION_POINTERS pExInfo);
+	static int callbackTerminationFilter(const LPEXCEPTION_POINTERS info, Process* callbackProcess, Oop prevCallbackContext);
 
-	static void recoverFromFault(LPEXCEPTION_POINTERS pExRec);
-	static void sendExceptionInterrupt(Oop oopInterrupt, LPEXCEPTION_POINTERS pExRec);
-	static bool saveContextAfterFault(LPEXCEPTION_POINTERS info);
+	static void recoverFromFault(const LPEXCEPTION_POINTERS pExRec);
+	static bool saveContextAfterFault(const LPEXCEPTION_POINTERS info);
+	static void sendExceptionInterrupt(VMInterrupts oopInterrupt, const LPEXCEPTION_POINTERS pExInfo);
 
 	static void wakePendingCallbacks();
 	static size_t countPendingCallbacks();
 
 	static void sendSelectorArgumentCount(SymbolOTE* selector, argcount_t count);
 	static void sendSelectorToClass(BehaviorOTE* classPointer, argcount_t argCount);
-	static void sendVMInterrupt(ProcessOTE* processPointer, Oop nInterrupt, Oop argPointer);
-	static void __fastcall sendVMInterrupt(Oop nInterrupt, Oop argPointer);
+	static void sendVMInterrupt(ProcessOTE* processPointer, VMInterrupts nInterrupt, Oop argPointer);
 
 	static BOOL __stdcall MsgSendPoll();
 	static BOOL	__stdcall BytecodePoll();
@@ -360,9 +360,15 @@ private:
 	static void __fastcall nonLocalReturnValueTo(Oop resultPointer, Oop contextPointer);
 	static void __fastcall invalidReturn(Oop resultPointer);
 
-	static BlockOTE* __fastcall blockCopy(uint32_t ext);
+	static BlockOTE* __stdcall blockCopy(BlockCopyExtension ext);
 
 public:
+	static void __fastcall sendVMInterrupt(VMInterrupts nInterrupt, Oop argPointer);
+	static int OutOfMemory(const LPEXCEPTION_POINTERS pExInfo);
+	static int __cdecl IEEEFPHandler(_FPIEEE_RECORD* pIEEEFPException);
+	static void sendZeroDivideInterrupt(const LPEXCEPTION_POINTERS pExInfo);
+
+
 	static void basicQueueForFinalization(OTE* ote);
 	static void queueForFinalization(OTE* ote, SmallUinteger);
 	static void queueForBereavementOf(OTE* ote, Oop argPointer);
@@ -370,8 +376,8 @@ public:
 	static constexpr size_t OopsPerBereavementQEntry = 2;
 
 	// Queue a process interrupt to be executed at the earliest opportunity
-	static void __stdcall queueInterrupt(ProcessOTE* processPointer, Oop nInterrupt, Oop argPointer);
-	static void __stdcall queueInterrupt(Oop nInterrupt, Oop argPointer);
+	static void __stdcall queueInterrupt(ProcessOTE* processPointer, VMInterrupts nInterrupt, Oop argPointer);
+	static void __stdcall queueInterrupt(VMInterrupts nInterrupt, Oop argPointer);
 
 	// Queue up a semaphore signal to be performed in sync with byte code execution
 	// at the next possible opportunity. Used from interrupts and from external sources
@@ -391,7 +397,7 @@ private:
 	static OTE* dequeueBereaved(ST::VariantObject* out);
 	static void scheduleFinalization();
 
-	static void CALLBACK TimeProc(UINT uID, UINT uMsg, DWORD dwUser, DWORD dw1, DWORD dw2);
+	static void CALLBACK TimeProc(UINT uID, UINT uMsg, DWORD_PTR dwUser, DWORD_PTR dw1, DWORD_PTR dw2);
 
 	// Signal a semaphore; synchronously if no interrupts are pending, else asynchronously.
 	// May initiate a Process switch, but does not perform the actual context switch
@@ -485,7 +491,7 @@ public:
 
 private:
 	// Answer whether an exception occurred in a primitive
-	static bool isInPrimitive(LPEXCEPTION_POINTERS pExInfo);
+	static bool isInPrimitive(const LPEXCEPTION_POINTERS pExInfo);
 
 public:
 	typedef argcount_t primargcount_t;
@@ -501,6 +507,7 @@ public:
 	static Oop* __fastcall primitiveReturnInstVar(Oop* const sp, primargcount_t argCount);
 	static Oop* __fastcall primitiveSetInstVar(Oop* const sp, primargcount_t argCount);
 	static Oop* __fastcall primitiveReturnStaticZero(Oop* const sp, primargcount_t argCount);
+	static Oop* __fastcall primitiveSetMutableInstVar(Oop* const sp, primargcount_t argCount);
 
 	// SmallInteger Arithmetic
 	static Oop* __fastcall primitiveAdd(Oop* const sp, primargcount_t argCount);
@@ -645,6 +652,8 @@ public:
 
 	// Object mutation
 	static Oop* __fastcall primitiveChangeBehavior(Oop* const sp, primargcount_t argCount);
+	static boolean hasCompatibleShape(OTE* oteReceiver, ST::Behavior* argClass);
+
 	static Oop* __fastcall primitiveResize(Oop* const sp, primargcount_t argCount);
 	static Oop* __fastcall primitiveBecome(Oop* const sp, primargcount_t argCount);
 	static Oop* __fastcall primitiveOneWayBecome(Oop* const sp, primargcount_t argCount);
@@ -752,12 +761,11 @@ public:
 private:
 
 	static BOOL __stdcall callExternalFunction(FARPROC pProc, argcount_t argCount, DolphinX::CallDescriptor* argTypes, BOOL isVirtual);
-	
+	static FARPROC GetDllCallProcAddress(DolphinX::ExternalMethodDescriptor* descriptor, LibraryOTE* oteReceiver);
+
 	// Pushs object on stack instantiated from address, and returns size of object pushed
 	static void pushArgsAt(CallbackDescriptor* descriptor, argcount_t argCount, uint8_t* lpParms);
 	static argcount_t pushArgsAt(const ExternalDescriptor* descriptor, uint8_t* lpParms);
-	
-	static int __cdecl IEEEFPHandler(_FPIEEE_RECORD *pIEEEFPException);
 
 	static void failTrace();
 
@@ -775,24 +783,24 @@ public:
 
 public:
 	// Special Selector Table
-	enum {NumSpecialSelectors = 32};
+	static constexpr size_t NumSpecialSelectors = 32;
 
 private:
 	// Method cache is a hash table with overwrite on collision
 	// If changing method cache size, then must also modify METHODCACHEWORDS in ISTASM.INC!
-	constexpr static size_t MethodCacheSize = 1024;
+	static constexpr size_t MethodCacheSize = 4096;
 	static MethodCacheEntry methodCache[MethodCacheSize];
 
 	static void flushCaches();
 	static void initializeCaches();
 	
-	enum { FIXEDVMREFERENCES };
-	enum { SIGNALQGROWTH=32, SIGNALQSIZE=64 };
-	enum { INTERRUPTQGROWTH=8, INTERRUPTQSIZE=16 };
-	enum { FINALIZEQSIZE = 128 };
-	enum { FINALIZEQGROWTH = 128 };
-	enum { BEREAVEMENTQSIZE = 64 };
-	enum { BEREAVEMENTQGROWTH=64 };
+	static constexpr size_t FixedVmReferences = 0;
+	static constexpr size_t SignalQueueGrowth=32, SignalQueueSize=64;
+	static constexpr size_t InterruptQueueGrowth=8, InterruptQueueSize=16;
+	static constexpr size_t FinalizeQueueSize = 128;
+	static constexpr size_t FinalizeQueueGrowth = 128;
+	static constexpr size_t BereavementQueueSize = 64;
+	static constexpr size_t BereavementQueueGrowth=64;
 
 private:
 	// Critical section to protect the async queues
@@ -800,8 +808,9 @@ private:
 
 public:
 	// Pools
-	enum { DWORDPOOL, FLOATPOOL, CONTEXTPOOL, BLOCKPOOL, NUMOTEPOOLS };
-	static ObjectMemory::OTEPool m_otePools[NUMOTEPOOLS];
+	enum class Pools { Dwords, Floats, Contexts, Blocks };
+	static constexpr size_t NumOtePools = static_cast<size_t>(Pools::Blocks) + 1;
+	static ObjectMemory::OTEPool m_otePools[NumOtePools];
 private:
 
 	// Process related registers
@@ -828,6 +837,7 @@ private:
 	static ProcessOTE* m_oteNewProcess;
 
 	static uint64_t m_clockFrequency;
+	static unsigned m_numberOfProcessors;			// Logical cores
 
 	static OTE* m_oteUnderConstruction;				// Window currently under construction
 
@@ -875,8 +885,8 @@ public:
 		static SmallInteger	m_nFreeVMRef;
 		static SmallInteger	m_nMaxVMRefs;				// Current size of VM References array
 
-		enum { VMREFSINITIAL = 16 };
-		enum { VMREFSGROWTH = 64 };
+		static constexpr size_t VMREFSINITIAL = 16;
+		static constexpr size_t VMREFSGROWTH = 64;
 	#endif
 };
 

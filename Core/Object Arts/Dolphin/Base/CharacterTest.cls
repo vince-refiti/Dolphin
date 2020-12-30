@@ -10,6 +10,19 @@ CharacterTest comment: ''!
 !CharacterTest categoriesForClass!Tests-Magnitude-General! !
 !CharacterTest methodsFor!
 
+nonCharacters
+	"Private - Unicode non-characters - see https://www.unicode.org/faq/private_use.html"
+
+	| nonchars |
+	nonchars := 16rFDD0 to: 16rFDEF.
+	0 to: 16r10
+		do: 
+			[:each |
+			| start |
+			start := (each << 16) + 16rFFFE.
+			nonchars := nonchars , (start to: start + 1)].
+	^nonchars!
+
 testAnsiValue
 	1 to: 256
 		do: [:each | self assert: (Character byteCharacterSet at: each) ansiValue equals: each - 1].
@@ -107,6 +120,19 @@ testClassCodePoint
 			[:i |
 			self should: [Character codePoint: (i << 16) + 16rFFFE] raise: Error.
 			self should: [Character codePoint: (i << 16) + 16rFFFF] raise: Error]!
+
+testClassNewCode
+	| ch ch2 originalMethod testMethod |
+	ch := Character newCode: Character dolphin code.
+	self assert: ch equals: $\x1F42C.
+	originalMethod := Character class compiledMethodAt: #newCode:.
+	testMethod := originalMethod copy.
+	"Sanity check"
+	self deny: testMethod == originalMethod.
+	testMethod extraIndex: 0.
+	"Invoke the method directly so we don't need to install it."
+	ch2 := testMethod value: Character withArguments: {ch code}.
+	self assert: ch2 equals: ch!
 
 testCodePoint
 	| euro utf8 utf16 |
@@ -271,17 +297,22 @@ testIsUtf16SurrogateTests
 	- `Character>>isUtf16Surrogate`
 	- `Character>>isUtf16Lead`
 	- `Character>>isUtf16Trail`
+	- `Character class>>utf16Value:`
+	- `Character class>>isValidUtf16CodeUnit:`
+	Also tests `Character class>>isValidCodePoint:`
 	"
 
-	| str |
+	| str nonchars |
 	str := Character dolphin asUtf16String.
 	self assert: str size equals: 2.
-	self assert: str first isUtf16Surrogate.
-	self assert: str second isUtf16Surrogate.
+	self assert: (str at: 1) isUtf16Surrogate.
+	self assert: (str at: 2) isUtf16Surrogate.
 	0 to: 16r7F
 		do: 
 			[:each |
 			| ch |
+			self assert: (Character isValidUtf16CodeUnit: each).
+			self assert: (Character isValidCodePoint: each).
 			ch := Character utf16Value: each.
 			self assert: ch isUtf8.
 			self deny: ch isSurrogate.
@@ -292,6 +323,8 @@ testIsUtf16SurrogateTests
 		do: 
 			[:each |
 			| ch |
+			self assert: (Character isValidUtf16CodeUnit: each).
+			self assert: (Character isValidCodePoint: each).
 			ch := Character utf16Value: each.
 			self deny: ch isUtf8.
 			self deny: ch isSurrogate.
@@ -302,6 +335,7 @@ testIsUtf16SurrogateTests
 		do: 
 			[:each |
 			| ch |
+			self assert: (Character isValidUtf16CodeUnit: each).
 			ch := Character utf16Value: each.
 			self deny: ch isUtf8.
 			self assert: ch isSurrogate.
@@ -312,34 +346,31 @@ testIsUtf16SurrogateTests
 		do: 
 			[:each |
 			| ch |
+			self assert: (Character isValidUtf16CodeUnit: each).
+			self deny: (Character isValidCodePoint: each).
 			ch := Character utf16Value: each.
 			self deny: ch isUtf8.
 			self assert: ch isSurrogate.
 			self assert: ch isUtf16Surrogate.
 			self deny: ch isUtf16Lead.
 			self assert: ch isUtf16Trail].
-	16rE000 to: 16rFDCF
-		do: 
+	nonchars := self nonCharacters.
+	((16rE000 to: 16rFFFF) difference: nonchars) do: 
 			[:each |
 			| ch |
+			self assert: (Character isValidUtf16CodeUnit: each).
+			self assert: (Character isValidCodePoint: each).
 			ch := Character utf16Value: each.
 			self deny: ch isUtf8.
 			self deny: ch isSurrogate.
 			self deny: ch isUtf16Surrogate.
 			self deny: ch isUtf16Lead.
 			self deny: ch isUtf16Trail].
-	"16rFDD0 to 16rFDEF are not valid"
-	16rFDF0 to: 16rFFFD
-		do: 
+	nonchars , {-1. Win32Constants.MAX_UCSCHAR + 1} do: 
 			[:each |
-			| ch |
-			ch := Character utf16Value: each.
-			self deny: ch isUtf8.
-			self deny: ch isSurrogate.
-			self deny: ch isUtf16Surrogate.
-			self deny: ch isUtf16Lead.
-			self deny: ch isUtf16Trail]
-	"16rFFFE and 16rFFFF are not valid"!
+			self deny: (Character isValidUtf16CodeUnit: each).
+			self deny: (Character isValidCodePoint: each).
+			self assertIsNil: (Character utf16Value: each ifInvalid: [])]!
 
 testIsUtf8SurrogateTests
 	"Exhaustively test Charcter>>isUtf8Surrogate, Character>>isUtf8Lead, Character>>isUtf8Trail."
@@ -359,9 +390,9 @@ testIsUtf8SurrogateTests
 			self deny: each isUtf8Lead.
 			self deny: each isUtf8Trail.
 			str := each asUtf8String.
-			self assert: str first isUtf8Surrogate.
-			self assert: str first isUtf8Lead.
-			self deny: str first isUtf8Trail.
+			self assert: (str at: 1) isUtf8Surrogate.
+			self assert: (str at: 1) isUtf8Lead.
+			self deny: (str at: 1) isUtf8Trail.
 			2 to: str size
 				do: 
 					[:i |
@@ -428,11 +459,42 @@ testSize
 	self assert: $a size equals: 0.
 	self assert: Character dolphin size equals: 0!
 
+testSplit
+	"Test single character delimiter"
+
+	| empty |
+	empty := ''.
+	self assert: ($- split: empty) equals: #().
+	self assert: ($- split: '-') equals: {empty. empty}.
+	self assert: ($- split: 'a') equals: #('a').
+	self assert: ($- split: '-a') equals: #('' 'a').
+	self assert: ($- split: 'a-') equals: #('a' '').
+	self assert: ($- split: '--a') equals: #('' '' 'a').
+	self assert: ($- split: 'a--') equals: #('a' '' '').
+	self assert: ($- split: 'ab') equals: #('ab').
+	self assert: ($- split: '-ab') equals: #('' 'ab').
+	self assert: ($- split: 'ab-') equals: #('ab' '').
+	self assert: ($- split: 'ab---') equals: #('ab' '' '' '').
+	self assert: ($- split: '--ab') equals: #('' '' 'ab').
+	self assert: ($- split: 'a-b') equals: #('a' 'b').
+	self assert: ($- split: 'a--b') equals: #('a' '' 'b').
+	self assert: ($- split: 'ab-c-') equals: #('ab' 'c' '').
+	self assert: ($- split: 'a-b--c') equals: #('a' 'b' '' 'c').
+
+	"Note that if the string consists only of separators, then we get N+1 empty strings if there are N chars"
+	1 to: 3
+		do: 
+			[:i |
+			| subject |
+			subject := String new: i withAll: $a.
+			self assert: ($a split: subject) equals: (Array new: i + 1 withAll: empty)]!
+
 testStb
 	| bytes rehydrated |
 	bytes := Character dolphin binaryStoreBytes.
 	rehydrated := Object fromBinaryStoreBytes: bytes.
 	self assert: rehydrated equals: Character dolphin! !
+!CharacterTest categoriesFor: #nonCharacters!constants!private! !
 !CharacterTest categoriesFor: #testAnsiValue!public!unit tests! !
 !CharacterTest categoriesFor: #testAsciiValue!public!unit tests! !
 !CharacterTest categoriesFor: #testAsLowercase!public!unit tests! !
@@ -440,6 +502,7 @@ testStb
 !CharacterTest categoriesFor: #testAsUtf16String!public!unit tests! !
 !CharacterTest categoriesFor: #testAsUtf8String!public!unit tests! !
 !CharacterTest categoriesFor: #testClassCodePoint!public!unit tests! !
+!CharacterTest categoriesFor: #testClassNewCode!public! !
 !CharacterTest categoriesFor: #testCodePoint!public!unit tests! !
 !CharacterTest categoriesFor: #testDigitValue!public!unit tests! !
 !CharacterTest categoriesFor: #testEquals!public!unit tests! !
@@ -455,5 +518,6 @@ testStb
 !CharacterTest categoriesFor: #testIsUtf8SurrogateTests!public!unit tests! !
 !CharacterTest categoriesFor: #testPrintString!public!unit tests! !
 !CharacterTest categoriesFor: #testSize!public!unit tests! !
+!CharacterTest categoriesFor: #testSplit!public!unit tests! !
 !CharacterTest categoriesFor: #testStb!public!unit tests! !
 

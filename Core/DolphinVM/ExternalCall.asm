@@ -23,8 +23,8 @@ extern NewExternalStructurePointer:near32
 NewExternalStructure EQU ?New@ExternalStructure@ST@@SIPAV?$TOTE@VObject@ST@@@@PAV?$TOTE@VBehavior@ST@@@@PAX@Z
 extern NewExternalStructure:near32
 
-NewAnsiStringWithLen EQU ?New@?$ByteStringT@$0A@$0FE@VAnsiStringOTE@@D@ST@@SIPAVAnsiStringOTE@@PBDI@Z
-extern NewAnsiStringWithLen:near32
+NewAnsiString EQU ?New@?$ByteStringT@$0A@$0FE@VAnsiStringOTE@@D@ST@@SIPAVAnsiStringOTE@@PBD@Z
+extern NewAnsiString:near32
 
 NewAnsiStringFromUtf16 EQU ?New@?$ByteStringT@$0A@$0FE@VAnsiStringOTE@@D@ST@@SIPAVAnsiStringOTE@@PB_W@Z
 extern NewAnsiStringFromUtf16:near32
@@ -53,6 +53,9 @@ extern CharacterGetCodePoint:near32
 
 ; We need to test the structure type specially
 ArgSTRUCT	EQU		50
+
+getDllCallAddress EQU ?GetDllCallProcAddress@Interpreter@@CIP6GHXZPAUExternalMethodDescriptor@DolphinX@@PAV?$TOTE@VExternalLibrary@ST@@@@@Z
+extern getDllCallAddress:near32
 
 atoi PROTO C :DWORD
 GetProcAddress  PROTO STDCALL :HINSTANCE, :LPCSTR
@@ -152,15 +155,15 @@ BEGINPRIMITIVE primitiveVirtualCall
 	
 	mov		eax, [eax].m_location
 	ASSUME	eax:PTR ExternalStructure
-	jb		localPrimitiveFailureAssertionFailure
+	jb		localPrimitiveFailureInvalidPointer
 
 	mov		eax, [eax].m_contents
 	test	al, 1
-	jnz		localPrimitiveFailureAssertionFailure
+	jnz		localPrimitiveFailureInvalidPointer
 	ASSUME	eax:PTR OTE
 
 	test	[eax].m_flags, MASK m_pointer
-	jnz		localPrimitiveFailureAssertionFailure
+	jnz		localPrimitiveFailureInvalidPointer
 
 @@:
 	ASSUME	eax:PTR OTE									; At this point, EAX is OTE of 'this' pointer
@@ -209,7 +212,7 @@ BEGINPRIMITIVE primitiveVirtualCall
 	ASSUME	eax:NOTHING
 	ASSUME	edx:NOTHING
 
-LocalPrimitiveFailure PrimitiveFailureAssertionFailure
+LocalPrimitiveFailure PrimitiveFailureInvalidPointer
 
 ENDPRIMITIVE primitiveVirtualCall
 
@@ -255,7 +258,9 @@ performCall:
 	ret														; eax will be non-zero as otherwise we'd not be here
 
 procAddressNotCached:
-	call	getProcAddress									; Cache value 0, so lookup the proc address
+	neg		edx
+	mov		edx, [_SP+edx*OOPSIZE]
+	call	getDllCallAddress								; Cache value 0, so lookup the proc address
 	test	eax, eax										; Returns null if not a valid proc name
 	jnz		performCall
 
@@ -266,46 +271,6 @@ procAddressNotCached:
 	PrimitiveFailureCode PrimitiveFailureProcNotFound
 
 asyncDLL32Call ENDP
-
-getProcAddress PROC
-	ASSUME	ecx:PTR CallDescriptor							; ecx points at descriptor bytes
-
-	push	ebx												; Save EBX
-	mov		ebx, ecx										; Save for later in safe register
-	ASSUME	ebx:PTR CallDescriptor							; ebx now points at descriptor bytes
-	ASSUME	ecx:NOTHING										; Now free to re-use ECX
-
-	; Get receiver from under args and extract the handle
-	mov		eax, _SP
-	lea		ecx, [edx*OOPSIZE]								; Offset of receiver down stack
-	sub		eax, ecx										; eax now points at receiver in stack
-
-	; Get address of proc name in the descriptor into eax
-	; N.B. Arg Count cannot be greater than 255
-	mov		dl, [ebx].m_argsLen
-	lea		edx, DWORD PTR [ebx].m_args[edx]
-
-	mov		eax, [eax]										; Load receiver Oop from stack
-	mov		eax, (OTE PTR[eax]).m_location
-	mov		eax, (ExternalLibrary PTR[eax]).m_handle		; Get handle Oop from receiver
-	mov		eax, (OTE PTR[eax]).m_location
-
-	; Prepare for call to GetProcAddress
-	push	edx												; Push address of proc name
-	push	(ExternalHandle PTR[eax]).m_handle				; Push DLL handle for call to GetProcAddress
-	
-	INVOKE	atoi, edx
-	
-	test	eax, eax										; atoi() returned 0?
-	jz		@F												; Yes, not an ordinal
-	mov		[esp+4], eax									; Store down ordinal value instead
-
-@@:
-	call	GetProcAddress
-	mov		[ebx].m_proc, eax								; Save down into cache
-	pop		ebx												; restore EBX
-	ret														; Proc address in EAX
-getProcAddress ENDP
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; A fastcall function (ecx is pMethod, edx is argCount)
@@ -341,7 +306,9 @@ performCall:
 	ret
 
 procAddressNotCached:
-	call	getProcAddress									; Cache value 0, so lookup the proc address
+	neg		edx
+	mov		edx, [_SP+edx*OOPSIZE]
+	call	getDllCallAddress								; Cache value 0, so lookup the proc address
 	test	eax, eax										; Returns null if not a valid proc name
 	jnz		performCall
 
@@ -1223,8 +1190,7 @@ ExtCallArgLPPVOID:
 	PushLoopNext <ARG>									; else push pointer out of object
 
 @@:
-	jnz		preCallFail									; Yes, not valid
-	ASSUME	ARG:PTR OTE									; No, its an object
+	ASSUME	ARG:PTR OTE
 
 	test	[ARG].m_flags, MASK m_pointer				; It it a pointer object
 	jz		@F											; No, skip handling for external structures
@@ -1259,18 +1225,13 @@ ExtCallArgLPPVOID:
 	ASSUME	TEMP:PTR OTE
 
 	mov		ARG, [ARG].m_location
-	ASSUME	ARG:PTR ByteArray							; It's bytes
-	
-;	add		ARG, HEADERSIZE
-	ASSUME	ARG:PTR BYTE								; ARG now points at the bytes themselves
 
-	mov		TEMP, [TEMP].m_location
-	ASSUME	TEMP:PTR Behavior							; TEMP is OTE of inst var class
-
-	; Relaxed for 2.2. Always passes the address of the object regardless
-	;test	[TEMP].m_instanceSpec, MASK m_indirect		; Is inst var instance of indirection class?
-	;jz		preCallFail									; No, fail it
-	
+	cmp		TEMP, [Pointers.ClassLargeInteger]	
+	je		@F
+	PushLoopNext <ARG>									; Yes, push pointer to the ExternalAddress obj, so can be written back into
+@@:
+	ASSUME	ARG:PTR LargeInteger
+	mov		ARG, DWORD PTR[ARG].m_digits
 	PushLoopNext <ARG>									; Yes, push pointer to the ExternalAddress obj, so can be written back into
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1671,7 +1632,11 @@ preCallFail:
 	; ARE BP BASED ADDRESSING FOR LOCALS, SO DON'T NEED TO BOTHER (RESTORING
 	; ESP FROM EBP CORRECTLY ON EXIT IS HANDLED BY MASM)
 
-	lea		eax, [INDEX*2+(65536*2)+1]			; failureCode = SmallInteger(0x10000+INDEX)
+	cmp		INDEX, 12
+	lea		eax, [INDEX*2+(PrimitiveFailureInvalidParameter1*2)+1]
+	mov		ecx, PrimitiveFailureInvalidParameter*2+1
+	cmovge	eax, ecx
+
 	mov		edx, callContext
 	ASSUME	edx:PTR InterpRegisters
 
@@ -1879,19 +1844,8 @@ extCallRetLPSTR:
 	test	RESULT, RESULT
 	jz		returnNil
 
-	push	RESULT								; preserve RESULT
-	
-	; NOTE THAT WE TRASH EDI HERE AND DO NOT BOTHER SAVING AND RESTORING IT
-	mov		edi, RESULT							; scan string in edi
-
-	mov		ecx, -1								; Keep searching
-	sub		eax, eax							; scan for null terminator
-	repnz	scasb
-
-	not		ecx
-	lea		edx, [ecx-1]						; Get length into edx
-	pop		ecx									; pop RESULT into ECX
-	call	NewAnsiStringWithLen
+	mov		ecx, RESULT							; Pass RESULT in ECX
+	call	NewAnsiString
 	AnswerObjectResult
 
 extCallRetLPPVOID:

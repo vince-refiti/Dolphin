@@ -94,6 +94,9 @@ defineConstantsPool
 		at: 'EDGE_LINE' put: 1;
 		at: 'EDGE_MULTILINE' put: 3;
 		at: 'EDGE_NONE' put: 0;
+		at: 'EOLANNOTATION_BOXED' put: 2;
+		at: 'EOLANNOTATION_HIDDEN' put: 0;
+		at: 'EOLANNOTATION_STANDARD' put: 1;
 		at: 'INDIC_BOX' put: 6;
 		at: 'INDIC_COMPOSITIONTHICK' put: 14;
 		at: 'INDIC_COMPOSITIONTHIN' put: 15;
@@ -288,6 +291,7 @@ defineConstantsPool
 		at: 'SC_MOD_BEFOREDELETE' put: 2048;
 		at: 'SC_MOD_BEFOREINSERT' put: 1024;
 		at: 'SC_MOD_CHANGEANNOTATION' put: 131072;
+		at: 'SC_MOD_CHANGEEOLANNOTATION' put: 4194304;
 		at: 'SC_MOD_CHANGEFOLD' put: 8;
 		at: 'SC_MOD_CHANGEINDICATOR' put: 16384;
 		at: 'SC_MOD_CHANGELINESTATE' put: 32768;
@@ -301,7 +305,7 @@ defineConstantsPool
 		at: 'SC_MOD_INSERTTEXT' put: 1;
 		at: 'SC_MOD_LEXERSTATE' put: 524288;
 		at: 'SC_MOD_NONE' put: 0;
-		at: 'SC_MODEVENTMASKALL' put: 4194303;
+		at: 'SC_MODEVENTMASKALL' put: 8388607;
 		at: 'SC_MULTIAUTOC_EACH' put: 1;
 		at: 'SC_MULTIAUTOC_ONCE' put: 0;
 		at: 'SC_MULTILINEUNDOREDO' put: 4096;
@@ -441,6 +445,7 @@ defineConstantsPool
 		at: 'SCI_BRACEHIGHLIGHT' put: 2351;
 		at: 'SCI_BRACEHIGHLIGHTINDICATOR' put: 2498;
 		at: 'SCI_BRACEMATCH' put: 2353;
+		at: 'SCI_BRACEMATCHNEXT' put: 2369;
 		at: 'SCI_CALLTIPACTIVE' put: 2202;
 		at: 'SCI_CALLTIPCANCEL' put: 2201;
 		at: 'SCI_CALLTIPPOSSTART' put: 2203;
@@ -512,6 +517,15 @@ defineConstantsPool
 		at: 'SCI_ENDUNDOACTION' put: 2079;
 		at: 'SCI_ENSUREVISIBLE' put: 2232;
 		at: 'SCI_ENSUREVISIBLEENFORCEPOLICY' put: 2234;
+		at: 'SCI_EOLANNOTATIONCLEARALL' put: 2744;
+		at: 'SCI_EOLANNOTATIONGETSTYLE' put: 2743;
+		at: 'SCI_EOLANNOTATIONGETSTYLEOFFSET' put: 2748;
+		at: 'SCI_EOLANNOTATIONGETTEXT' put: 2741;
+		at: 'SCI_EOLANNOTATIONGETVISIBLE' put: 2746;
+		at: 'SCI_EOLANNOTATIONSETSTYLE' put: 2742;
+		at: 'SCI_EOLANNOTATIONSETSTYLEOFFSET' put: 2747;
+		at: 'SCI_EOLANNOTATIONSETTEXT' put: 2740;
+		at: 'SCI_EOLANNOTATIONSETVISIBLE' put: 2745;
 		at: 'SCI_EXPANDCHILDREN' put: 2239;
 		at: 'SCI_FINDCOLUMN' put: 2456;
 		at: 'SCI_FINDINDICATORFLASH' put: 2641;
@@ -665,7 +679,9 @@ defineConstantsPool
 		at: 'SCI_GETSELECTIONNCARET' put: 2577;
 		at: 'SCI_GETSELECTIONNCARETVIRTUALSPACE' put: 2581;
 		at: 'SCI_GETSELECTIONNEND' put: 2587;
+		at: 'SCI_GETSELECTIONNENDVIRTUALSPACE' put: 2727;
 		at: 'SCI_GETSELECTIONNSTART' put: 2585;
+		at: 'SCI_GETSELECTIONNSTARTVIRTUALSPACE' put: 2726;
 		at: 'SCI_GETSELECTIONS' put: 2570;
 		at: 'SCI_GETSELECTIONSTART' put: 2143;
 		at: 'SCI_GETSELEOLFILLED' put: 2479;
@@ -681,10 +697,13 @@ defineConstantsPool
 		at: 'SCI_GETSUBSTYLESSTART' put: 4021;
 		at: 'SCI_GETTABDRAWMODE' put: 2698;
 		at: 'SCI_GETTABINDENTS' put: 2261;
+		at: 'SCI_GETTABMINIMUMWIDTH' put: 2725;
 		at: 'SCI_GETTABWIDTH' put: 2121;
 		at: 'SCI_GETTAG' put: 2616;
 		at: 'SCI_GETTARGETEND' put: 2193;
+		at: 'SCI_GETTARGETENDVIRTUALSPACE' put: 2731;
 		at: 'SCI_GETTARGETSTART' put: 2191;
+		at: 'SCI_GETTARGETSTARTVIRTUALSPACE' put: 2729;
 		at: 'SCI_GETTARGETTEXT' put: 2687;
 		at: 'SCI_GETTECHNOLOGY' put: 2631;
 		at: 'SCI_GETTEXT' put: 2182;
@@ -794,8 +813,10 @@ defineConstantsPool
 		at: 'SCI_MARKERDELETEHANDLE' put: 2018;
 		at: 'SCI_MARKERENABLEHIGHLIGHT' put: 2293;
 		at: 'SCI_MARKERGET' put: 2046;
+		at: 'SCI_MARKERHANDLEFROMLINE' put: 2732;
 		at: 'SCI_MARKERLINEFROMHANDLE' put: 2017;
 		at: 'SCI_MARKERNEXT' put: 2047;
+		at: 'SCI_MARKERNUMBERFROMLINE' put: 2733;
 		at: 'SCI_MARKERPREVIOUS' put: 2048;
 		at: 'SCI_MARKERSETALPHA' put: 2476;
 		at: 'SCI_MARKERSETBACK' put: 2042;
@@ -917,6 +938,7 @@ defineConstantsPool
 		at: 'SCI_SETIDENTIFIER' put: 2622;
 		at: 'SCI_SETIDENTIFIERS' put: 4024;
 		at: 'SCI_SETIDLESTYLING' put: 2692;
+		at: 'SCI_SETILEXER' put: 4033;
 		at: 'SCI_SETIMEINTERACTION' put: 2679;
 		at: 'SCI_SETINDENT' put: 2122;
 		at: 'SCI_SETINDENTATIONGUIDES' put: 2132;
@@ -990,10 +1012,13 @@ defineConstantsPool
 		at: 'SCI_SETSTYLINGEX' put: 2073;
 		at: 'SCI_SETTABDRAWMODE' put: 2699;
 		at: 'SCI_SETTABINDENTS' put: 2260;
+		at: 'SCI_SETTABMINIMUMWIDTH' put: 2724;
 		at: 'SCI_SETTABWIDTH' put: 2036;
 		at: 'SCI_SETTARGETEND' put: 2192;
+		at: 'SCI_SETTARGETENDVIRTUALSPACE' put: 2730;
 		at: 'SCI_SETTARGETRANGE' put: 2686;
 		at: 'SCI_SETTARGETSTART' put: 2190;
+		at: 'SCI_SETTARGETSTARTVIRTUALSPACE' put: 2728;
 		at: 'SCI_SETTECHNOLOGY' put: 2630;
 		at: 'SCI_SETTEXT' put: 2181;
 		at: 'SCI_SETTWOPHASEDRAW' put: 2284;
@@ -1171,6 +1196,7 @@ defineConstantsPool
 		at: 'SCLEX_GAP' put: 81;
 		at: 'SCLEX_GUI4CLI' put: 58;
 		at: 'SCLEX_HASKELL' put: 68;
+		at: 'SCLEX_HOLLYWOOD' put: 130;
 		at: 'SCLEX_HTML' put: 4;
 		at: 'SCLEX_IHEX' put: 118;
 		at: 'SCLEX_INDENT' put: 122;
@@ -1217,6 +1243,7 @@ defineConstantsPool
 		at: 'SCLEX_PUREBASIC' put: 67;
 		at: 'SCLEX_PYTHON' put: 2;
 		at: 'SCLEX_R' put: 86;
+		at: 'SCLEX_RAKU' put: 131;
 		at: 'SCLEX_REBOL' put: 71;
 		at: 'SCLEX_REGISTRY' put: 115;
 		at: 'SCLEX_RUBY' put: 22;
@@ -1582,11 +1609,11 @@ ignoredMessages
 	"Some position functions that we want to keep zero-based"
 	ignoredMessages addAll: #('SCI_LINEFROMPOSITION' 'SCI_POSITIONFROMLINE').
 
-	"sciGetCodePage is customised"
-	ignoredMessages add: 'SCI_SETCODEPAGE'.
-
 	"4.1.3: SCI_GET/SETCOMMANDEVENTS are not generated because we don't allow this to be changed (it must be false)"
 	ignoredMessages addAll: #('SCI_GETCOMMANDEVENTS' 'SCI_SETCOMMANDEVENTS').
+
+	"Call tip styles are managed using a text style."
+	ignoredMessages addAll: #('SCI_CALLTIPSETFORE' 'SCI_CALLTIPSETBACK').
 
 	ignoredMessages
 		shrink;

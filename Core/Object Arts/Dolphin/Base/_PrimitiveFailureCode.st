@@ -6,11 +6,13 @@ _PrimitiveFailureCode at: 'AssertionFailure' put: -16r17FFFBE0!
 _PrimitiveFailureCode at: 'ClassNotRegistered' put: -16r3FFBFEAC!
 _PrimitiveFailureCode at: 'Completed' put: 16r80000FF!
 _PrimitiveFailureCode at: 'Failed' put: -16r3FFFBFFB!
+_PrimitiveFailureCode at: 'FloatInvalidOperation' put: -16r17FFFF70!
 _PrimitiveFailureCode at: 'IllegalCharacter' put: -16r17FFFE9F!
 _PrimitiveFailureCode at: 'IllegalStateChange' put: -16r3FFFFFF3!
 _PrimitiveFailureCode at: 'IntegerOutOfRange' put: -16r3FCDFFD8!
 _PrimitiveFailureCode at: 'IntegerOverflow' put: -16r17FFFF6B!
 _PrimitiveFailureCode at: 'InternalError' put: -16r17FFFF1B!
+_PrimitiveFailureCode at: 'InvalidParameter' put: -16r17FFFFF3!
 _PrimitiveFailureCode at: 'InvalidParameter1' put: -16r17FFFF11!
 _PrimitiveFailureCode at: 'InvalidParameter10' put: -16r17FFFF08!
 _PrimitiveFailureCode at: 'InvalidParameter11' put: -16r17FFFF07!

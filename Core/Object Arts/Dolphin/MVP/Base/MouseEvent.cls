@@ -16,52 +16,93 @@ button
 	(message between: WM_LBUTTONDOWN and: WM_LBUTTONDBLCLK) ifTrue: [^#left].
 	(message between: WM_RBUTTONDOWN and: WM_RBUTTONDBLCLK) ifTrue: [^#right].
 	(message between: WM_MBUTTONDOWN and: WM_MBUTTONDBLCLK) ifTrue: [^#middle].
-	(message between: WM_XBUTTONDOWN and: WM_XBUTTONDBLCLK) 
-		ifTrue: [self wParam highWord == 1 ifTrue: [^#xButton1] ifFalse: [^#xButton2]].
+	(message between: WM_XBUTTONDOWN and: WM_XBUTTONDBLCLK)
+		ifTrue: [wParam highWord == 1 ifTrue: [^#xButton1] ifFalse: [^#xButton2]].
 	^nil!
+
+buttonFlag
+	"Answer the flag from the Win32 MK_ enumeration that corresponds to the button associated with this event."
+
+	^self button ifNil: [0] ifNotNil: [:button | self class wParamFlags at: button]!
+
+isButtonDown
+	"Is the event associated with any mouse button being down?"
+
+	^wParam anyMask: ##(MK_LBUTTON | MK_RBUTTON | MK_MBUTTON | MK_XBUTTON1 | MK_XBUTTON2)!
 
 isCtrlDown
 	"Answer whether the control key is down."
 
-	^self keys anyMask: MK_CONTROL!
+	^wParam anyMask: MK_CONTROL!
 
 isLButtonDown
 	"Answer whether the left mouse button is down."
 
-	^self keys anyMask: MK_LBUTTON!
+	^wParam anyMask: MK_LBUTTON!
 
 isMButtonDown
 	"Answer whether the middle mouse button is down."
 
-	^self keys anyMask: MK_MBUTTON!
+	^wParam anyMask: MK_MBUTTON!
+
+isModifierDown
+	"Answer whether the control or shift key is down."
+
+	^wParam anyMask: ##(MK_CONTROL | MK_SHIFT)!
 
 isRButtonDown
 	"Answer whether the right mouse button is down."
 
-	^self keys anyMask: MK_RBUTTON!
+	^wParam anyMask: MK_RBUTTON!
+
+isSelectionButtonDown
+	^wParam anyMask: ##(MK_LBUTTON | MK_RBUTTON)!
 
 isShiftDown
 	"Answer whether the shift key is down."
 
-	^self keys anyMask: MK_SHIFT!
+	^wParam anyMask: MK_SHIFT!
 
-isXButtonDown: anInteger 
+isXButtonDown: anInteger
 	"Answer whether the specified X button (numbered either 1 or 2) is down."
 
-	(anInteger between: 1 and: 2) 
+	(anInteger between: 1 and: 2)
 		ifFalse: [self error: 'Invalid X button number: ' , anInteger displayString].
-	^self keys anyMask: (MK_XBUTTON1 bitShift: anInteger - 1)!
+	^wParam anyMask: (MK_XBUTTON1 bitShift: anInteger - 1)!
 
-keys
-	"Private - Answer the keys flags from the message."
-
-	^self wParam! !
+printWParamOn: aStream
+	| first |
+	first := true.
+	#('MK_CONTROL' 'MK_SHIFT' 'MK_LBUTTON' 'MK_RBUTTON' 'MK_MBUTTON' 'MK_XBUTTON1' 'MK_XBUTTON2') do: 
+			[:each |
+			(wParam allMask: (Win32Constants at: each))
+				ifTrue: 
+					[first ifTrue: [first := false] ifFalse: [aStream nextPut: $|].
+					aStream nextPutAll: each]]! !
 !MouseEvent categoriesFor: #button!accessing!public! !
+!MouseEvent categoriesFor: #buttonFlag!accessing!public! !
+!MouseEvent categoriesFor: #isButtonDown!public!testing! !
 !MouseEvent categoriesFor: #isCtrlDown!public!testing! !
 !MouseEvent categoriesFor: #isLButtonDown!public!testing! !
 !MouseEvent categoriesFor: #isMButtonDown!public!testing! !
+!MouseEvent categoriesFor: #isModifierDown!public!testing! !
 !MouseEvent categoriesFor: #isRButtonDown!public!testing! !
+!MouseEvent categoriesFor: #isSelectionButtonDown!public!testing! !
 !MouseEvent categoriesFor: #isShiftDown!public!testing! !
 !MouseEvent categoriesFor: #isXButtonDown:!public!testing! !
-!MouseEvent categoriesFor: #keys!accessing!private! !
+!MouseEvent categoriesFor: #printWParamOn:!development!printing!private! !
+
+!MouseEvent class methodsFor!
+
+wParamFlags
+	"Answer an <IdentityDictionary> mapping between the names of the mouse buttons and the corresponding flag that will be set in 'keys' (wParam) if that button was down at the time of the event."
+
+	^##(IdentityDictionary withAll: {#left -> MK_LBUTTON.
+				#right -> MK_RBUTTON.
+				#middle -> MK_MBUTTON.
+				#xButton1 -> MK_XBUTTON1.
+				#xButton2 -> MK_XBUTTON2.
+				#shift -> MK_SHIFT.
+				#control -> MK_CONTROL})! !
+!MouseEvent class categoriesFor: #wParamFlags!constants!public! !
 

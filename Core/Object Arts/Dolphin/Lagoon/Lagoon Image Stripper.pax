@@ -1,6 +1,7 @@
 ﻿| package |
 package := Package name: 'Lagoon Image Stripper'.
 package paxVersion: 1;
+	preDeclareClassesOnLoad: false;
 	basicComment: 'Dolphin Smalltalk Lagoon Image Stripper.
 Copyright (c) Object Arts Ltd, 1998-2006.
 
@@ -79,7 +80,7 @@ fullyCompileDefinition
 
 	self newTemplate; defineTemplate.
 	self template do: [:each | each beCompiled].
-	self recompileDefinition; shrink.!
+	self recompileDefinition!
 
 removeTemplate
 	template := nil! !

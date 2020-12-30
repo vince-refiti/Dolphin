@@ -1,6 +1,7 @@
 ﻿| package |
 package := Package name: 'OA SUnit Extensions'.
 package paxVersion: 1;
+	preDeclareClassesOnLoad: false;
 	basicComment: 'Object Arts SUnit Extensions.
 Copyright (c) Object Arts Ltd, 2002.
 
@@ -10,6 +11,7 @@ Extensions to the basic SUnit unit testing packages, including the ability to te
 package methodNames
 	add: #TestCase -> #<=;
 	add: #TestCase -> #=;
+	add: #TestCase -> #assert:equals:description:;
 	add: #TestCase -> #assert:identicalTo:;
 	add: #TestCase -> #assert:isKindOf:;
 	add: #TestCase -> #assert:sameAs:;
@@ -72,6 +74,12 @@ package!
 	"Answer whether the argument, aTestCase, is considered exactly equivalent to the receiver."
 
 	^self class == aTestCase class and: [self selector == aTestCase selector]!
+
+assert: actualObject equals: expectedObject description: aStringOrValue
+	expectedObject = actualObject
+		ifFalse: 
+			[self fail: (self getDescription: aStringOrValue) , ': '
+						, (self comparingStringBetween: expectedObject and: actualObject)]!
 
 assert: actualObject identicalTo: expectedObject
 	expectedObject == actualObject
@@ -282,13 +290,13 @@ skipIfWin32
 
 	self skipUnless: [KernelLibrary default isWow64]!
 
-skipUnless: aBooleanOrBlock
-	" If the assumption in aBooleanOrBlock is not true, abandon the running test
-	and mark it as passed. "
-
-	aBooleanOrBlock value ifFalse: [TestSkip signal: 'Assumption in #skipUnless: failed']! !
+skipUnless: aNiladicValuable
+	" If the assumption in the <niladicValuable> argument evaluates to false, abandon the running test and mark it as skipped."
+	
+	aNiladicValuable value ifFalse: [TestSkip signal: 'Assumption in #skipUnless: failed']! !
 !TestCase categoriesFor: #<=!comparing!public! !
 !TestCase categoriesFor: #=!comparing!public! !
+!TestCase categoriesFor: #assert:equals:description:!asserting!public! !
 !TestCase categoriesFor: #assert:identicalTo:!asserting!public! !
 !TestCase categoriesFor: #assert:isKindOf:!asserting!public! !
 !TestCase categoriesFor: #assert:sameAs:!asserting!public! !

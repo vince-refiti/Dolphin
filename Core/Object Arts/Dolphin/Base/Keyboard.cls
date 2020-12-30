@@ -42,6 +42,15 @@ buildVKeyMaps
 	virtualKeys := nameToVk.
 	keyNames := vkToName!
 
+buttonKeys
+	"Private - Answer an <IdentityDictionary> mapping between the names of the mouse buttons and the corresponding virtual key codes."
+
+	^##(IdentityDictionary withAll: {#left -> VK_LBUTTON.
+				#right -> VK_RBUTTON.
+				#middle -> VK_MBUTTON.
+				#xButton1 -> VK_XBUTTON1.
+				#xButton2 -> VK_XBUTTON2})!
+
 getKeyNameFromVKey: anInteger ifNone: exceptionHandler
 	"Private - Answer the <readableString> name of the specified virtual key code in this Keyboard layout, or evaluate the exceptionHandler block if none."
 
@@ -64,17 +73,10 @@ isAltDown
 
 	^self isKeyDown: VK_MENU!
 
-isButtonDown: aSymbol 
+isButtonDown: aSymbol
 	"Answer whether the mouse button identified by the symbolic name (e.g. #left, #right, or #middle) is currently pressed down."
 
-	^self 
-		isKeyDown: (##((IdentityDictionary new)
-				at: #left put: VK_LBUTTON;
-				at: #right put: VK_RBUTTON;
-				at: #middle put: VK_MBUTTON;
-				at: #xButton1 put: VK_XBUTTON1;
-				at: #xButton2 put: VK_XBUTTON2;
-				yourself) at: aSymbol)!
+	^self isKeyDown: (self buttonKeys at: aSymbol)!
 
 isCancelDown
 	"Answer whether the Cancel (CTRL+BREAK) key is down."
@@ -209,6 +211,7 @@ vKeyToScanCode: anInteger
 	^UserLibrary default mapVirtualKey: (anInteger bitAnd: 16rFF) uMapType: MAPVK_VK_TO_VSC! !
 !Keyboard categoriesFor: #asyncKeyState:!helpers!private! !
 !Keyboard categoriesFor: #buildVKeyMaps!helpers!private! !
+!Keyboard categoriesFor: #buttonKeys!constants!private! !
 !Keyboard categoriesFor: #getKeyNameFromVKey:ifNone:!helpers!private! !
 !Keyboard categoriesFor: #getState!helpers!private! !
 !Keyboard categoriesFor: #isAltDown!public!testing! !
@@ -272,6 +275,8 @@ invariantVKeyMap
 	"Private - Answer a <dictionary> mapping from invariant (UK English) key names to the corresponding virtual key code.
 	These are the string names that should be used in code, as opposed to localised key names intended to be displayed to an end-user."
 
+	"Yes, VK_OEM_PLUS really does translate to the key name '='"
+
 	^SearchPolicy caseInsensitive newLookupTable
 		at: 'BACKSPACE' put: VK_BACK;
 		at: 'TAB' put: VK_TAB;
@@ -332,8 +337,8 @@ invariantVKeyMap
 		at: 'NUMMULT' put: VK_MULTIPLY;
 		at: 'NUM PLUS' put: VK_ADD;
 		at: 'NUM SUB' put: VK_SUBTRACT;
-		at: 'NUM DECIMAL' put: 16r6E;
-		at: '/' put: VK_DIVIDE;
+		at: 'NUM DIVIDE' put: VK_DIVIDE | KF_EXTENDED;
+		at: 'NUM DECIMAL' put: VK_DECIMAL;
 		at: 'F1' put: VK_F1;
 		at: 'F2' put: VK_F2;
 		at: 'F3' put: VK_F3;
@@ -350,23 +355,24 @@ invariantVKeyMap
 		at: ',' put: VK_OEM_COMMA;
 		at: '-' put: VK_OEM_MINUS;
 		at: '.' put: VK_OEM_PERIOD;
+		at: '/' put: VK_OEM_2;
 		at: '[' put: VK_OEM_4;
 		at: '\' put: VK_OEM_5;
 		at: ']' put: VK_OEM_6;
 		at: '#' put: VK_OEM_7;
 		at: '`' put: VK_OEM_8;
-		at: 'NUM ENTER' put: VK_RETURN | 16r100;
-		at: 'PGUP' put: VK_PRIOR | 16r100;
-		at: 'PGDOWN' put: VK_NEXT | 16r100;
-		at: 'END' put: VK_END | 16r100;
-		at: 'HOME' put: VK_HOME | 16r100;
-		at: 'LEFT' put: VK_LEFT | 16r100;
-		at: 'UP' put: VK_UP | 16r100;
-		at: 'RIGHT' put: VK_RIGHT | 16r100;
-		at: 'DOWN' put: VK_DOWN | 16r100;
-		at: 'INSERT' put: VK_INSERT | 16r100;
-		at: 'DEL' put: VK_DELETE | 16r100;
-		at: 'DELETE' put: VK_DELETE | 16r100;
+		at: 'NUM ENTER' put: VK_RETURN | KF_EXTENDED;
+		at: 'PGUP' put: VK_PRIOR | KF_EXTENDED;
+		at: 'PGDOWN' put: VK_NEXT | KF_EXTENDED;
+		at: 'END' put: VK_END | KF_EXTENDED;
+		at: 'HOME' put: VK_HOME | KF_EXTENDED;
+		at: 'LEFT' put: VK_LEFT | KF_EXTENDED;
+		at: 'UP' put: VK_UP | KF_EXTENDED;
+		at: 'RIGHT' put: VK_RIGHT | KF_EXTENDED;
+		at: 'DOWN' put: VK_DOWN | KF_EXTENDED;
+		at: 'INSERT' put: VK_INSERT | KF_EXTENDED;
+		at: 'DEL' put: VK_DELETE | KF_EXTENDED;
+		at: 'DELETE' put: VK_DELETE | KF_EXTENDED;
 		shrink;
 		isImmutable: true;
 		yourself!

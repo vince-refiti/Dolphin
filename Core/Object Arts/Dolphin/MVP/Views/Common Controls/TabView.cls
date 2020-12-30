@@ -147,6 +147,13 @@ getItem: anInteger
 		lpParam: tcItem asParameter.
 	^tcItem!
 
+getSelectionsByIndex
+	"Private - Query the current selections from the control"
+
+	| index |
+	index := self getSingleSelection.
+	^index == 0 ifTrue: [#()] ifFalse: [{index}]!
+
 getSingleSelection
 	"Private - Answers the handle of the selected object in the receiver or zero if
 	there is none."
@@ -322,7 +329,7 @@ onMouseHovering: aMouseEvent
 		ifTrue: 
 			[| hit |
 			hit := self basicItemFromPoint: aMouseEvent position.
-			(hit isItemHit and: [self getSingleSelection ~= hit handle]) 
+			(hit isItemHit and: [self selectionByIndex ~= hit handle]) 
 				ifTrue: 
 					[| event |
 					event := SelectionChangingEvent forSource: self.
@@ -389,6 +396,11 @@ rows
 
 	^self sendMessage: TCM_GETROWCOUNT!
 
+selectionByIndex
+	"Answers the handle of the selected object in the receiver or zero if there is none."
+
+	^(self sendMessage: TCM_GETCURSEL) + 1!
+
 selectionByIndex: anInteger ifAbsent: exceptionHandler 
 	"Selects the object identified by the specified one-based <integer> index in the receiver.
 	If the index is zero then all selections are cleared. Answers the new selection index, or
@@ -404,6 +416,16 @@ selectionByIndex: anInteger ifAbsent: exceptionHandler
 			the result of a user action so force it here"
 			self onSelChanged: nil].
 	^anInteger!
+
+selectionState
+	| selectedIndex |
+	selectedIndex := self selectionByIndex.
+	^selectedIndex == 0
+		ifFalse: 
+			[MessageSend
+				receiver: self
+				selector: #setSingleSelection:
+				argument: selectedIndex]!
 
 setSingleSelection: anInteger 
 	self sendMessage: TCM_SETCURSEL wParam: anInteger - 1!
@@ -595,6 +617,7 @@ viewModeChanged
 !TabView categoriesFor: #ensureVisible:!public! !
 !TabView categoriesFor: #fontChanged!public!updating! !
 !TabView categoriesFor: #getItem:!helpers!private! !
+!TabView categoriesFor: #getSelectionsByIndex!private!selection! !
 !TabView categoriesFor: #getSingleSelection!public!selection! !
 !TabView categoriesFor: #hasButtons!accessing-styles!public! !
 !TabView categoriesFor: #hasButtons:!accessing-styles!public! !
@@ -626,7 +649,9 @@ viewModeChanged
 !TabView categoriesFor: #queryCommand:!private! !
 !TabView categoriesFor: #refreshContents!public!updating! !
 !TabView categoriesFor: #rows!geometry!public! !
+!TabView categoriesFor: #selectionByIndex!public!selection! !
 !TabView categoriesFor: #selectionByIndex:ifAbsent:!public!selection! !
+!TabView categoriesFor: #selectionState!accessing!private! !
 !TabView categoriesFor: #setSingleSelection:!public!selection! !
 !TabView categoriesFor: #setViewMode:!accessing!private! !
 !TabView categoriesFor: #state!accessing!private! !

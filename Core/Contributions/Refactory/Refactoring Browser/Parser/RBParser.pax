@@ -1,6 +1,7 @@
 ﻿| package |
 package := Package name: 'RBParser'.
 package paxVersion: 1;
+	preDeclareClassesOnLoad: false;
 	basicComment: 'Dolphin RBParser Package
 Copyright John Brant and Don Roberts.
 
@@ -427,9 +428,8 @@ parseRewriteMethod: aString onError: aBlock
 copyInContext: aDictionary
 	^self class named: self name!
 
-equalTo: anObject withMapping: aDictionary 
-	^self class = anObject class and: 
-			[(aDictionary at: self name ifAbsentPut: [anObject name]) = anObject name]!
+equalTo: anObject withMapping: aDictionary
+	^anObject isVariable and: [(aDictionary at: self name ifAbsentPut: [anObject name]) = anObject name].!
 
 references: aVariableName 
 	^self name = aVariableName!

@@ -1,6 +1,7 @@
 ﻿| package |
 package := Package name: 'Dolphin MVP (Deprecated)'.
 package paxVersion: 1;
+	preDeclareClassesOnLoad: false;
 	basicComment: 'Dolphin Smalltalk Graphical User Interface framework (Deprecated Classes and Methods).
 
 This package includes legacy classes and methods from Dolphin''s base package that have been deprecated. If you have no requirement to use code imported from pre-5.0 versions of Dolphin, then this package can be safely uninstalled.
@@ -52,6 +53,11 @@ package methodNames
 	add: #ListView -> #hasTrackSelect;
 	add: #ListView -> #hasTrackSelect:;
 	add: #LVBKIMAGEW -> #offset:;
+	add: #Menu -> #find:;
+	add: #Menu -> #find:ifAbsent:;
+	add: #Menu -> #remove:;
+	add: #Menu -> #remove:ifAbsent:;
+	add: #Menu -> #replace:with:;
 	add: #MoenTreeView -> #updateItem:andChildren:imagesOnly:;
 	add: #RGB -> #asIndexedColorUsingPalette:;
 	add: #ScintillaIndicator -> #type;
@@ -103,14 +109,12 @@ package methodNames
 	add: #VirtualColor -> #asIndexedColor;
 	add: 'AcceleratorTable class' -> #keyModifierNames:;
 	add: 'AcceleratorTable class' -> #keyModifierNames:do:;
-	add: 'AcceleratorTable class' -> #keyModifiers:;
 	add: 'Brush class' -> #dkGray;
 	add: 'Brush class' -> #hatchedDiagonal;
 	add: 'Brush class' -> #hollow;
 	add: 'Brush class' -> #ltGray;
 	add: 'ChoicePresenter class' -> #resource_Multiselection_list_box;
 	add: 'Color class' -> #buttonFace;
-	add: 'ColorRef class' -> #fromInteger:;
 	add: 'ListPresenter class' -> #resource_Multiselection_enhanced_list_view;
 	add: 'ListPresenter class' -> #resource_Multiselection_list_box;
 	add: 'PaintEvent class' -> #handle:wParam:hdc:paintStruct:;
@@ -218,14 +222,9 @@ keyModifierNames: anInteger do: aMonadicValuable
 	self
 		keyModifierNames: anInteger
 		keyboard: Keyboard default
-		do: aMonadicValuable!
-
-keyModifiers: anArrayOfLocalizedKeyNames
-	Notification deprecated.
-	^self keyModifiers: anArrayOfLocalizedKeyNames keyboard: Keyboard default! !
+		do: aMonadicValuable! !
 !AcceleratorTable class categoriesFor: #keyModifierNames:!enquiries!public! !
 !AcceleratorTable class categoriesFor: #keyModifierNames:do:!enquiries!public! !
-!AcceleratorTable class categoriesFor: #keyModifiers:!enquiries!public! !
 
 !ARGB methodsFor!
 
@@ -418,14 +417,6 @@ asIndexedColorUsingPalette: hPalette
 !ColorRef categoriesFor: #asIndexedColor!converting!public! !
 !ColorRef categoriesFor: #asIndexedColorUsingPalette:!converting!public! !
 
-!ColorRef class methodsFor!
-
-fromInteger: anInteger
-
-	Notification deprecated.
-	^self fromCOLORREF: anInteger! !
-!ColorRef class categoriesFor: #fromInteger:!instance creation!private! !
-
 !GUISessionManager methodsFor!
 
 whatsThis: object 
@@ -536,6 +527,50 @@ offset: aPoint
 		xOffsetPercent: aPoint x;
 		yOffsetPercent: aPoint y! !
 !LVBKIMAGEW categoriesFor: #offset:!public! !
+
+!Menu methodsFor!
+
+find: aString
+	"Answer the <MenuItem> whose text matches the <readableString> argument.
+	Any & characters in the MenuItems are ignored for the comparison."
+
+	Notification deprecated. "Searching a menu by display string is a poor practice."
+	^self find: aString ifAbsent: [self errorNotFound: aString]!
+
+find: aString ifAbsent: exceptionHandler
+	"Answer the MenuItem whose text matches the <readableString> argument, or the 
+	result of evaluating the <niladicValuable>, exceptionHandler, if there is no matching
+	item. Any & characters in the MenuItems are ignored for the comparison."
+
+	Notification deprecated. "Searching a menu by display string is a poor practice."
+	^items detect: [:aMenuItem | (aMenuItem text copyWithout: $&) = aString]
+		ifNone: exceptionHandler!
+
+remove: aString 
+	"Remove the MenuItem whose text matches the <readableString> argument. Any & characters in
+	the MenuItems are ignored for the comparison."
+
+	Notification deprecated. "Searching a menu by display string is a poor practice."
+	self removeItem: (self find: aString)!
+
+remove: aString ifAbsent: exceptionHandler 
+	"Remove the MenuItem whose text matches the <readableString> argument, or the 
+	result of evaluating the <niladicValuable>, exceptionHandler, if there is no matching
+	item. Any & characters in the MenuItems are ignored for the comparison."
+
+	Notification deprecated. "Searching a menu by display string is a poor practice."
+	self removeItem: (self find: aString ifAbsent: [^exceptionHandler value])!
+
+replace: aString with: aMenu
+	| index |
+	Notification deprecated.	"Searching a menu by display string is a poor practice."
+	index := items indexOf: (self find: aString).
+	self itemAt: index put: aMenu! !
+!Menu categoriesFor: #find:!public!searching! !
+!Menu categoriesFor: #find:ifAbsent:!public!searching! !
+!Menu categoriesFor: #remove:!public!removing! !
+!Menu categoriesFor: #remove:ifAbsent:!public!removing! !
+!Menu categoriesFor: #replace:with:!public!replacing! !
 
 !MoenTreeView methodsFor!
 
@@ -655,7 +690,7 @@ isKeyboardInputUnicode
 	^this
 		ifNil: [false]
 		ifNotNil: 
-			[(ScintillaLibrary default
+			[(Library
 				directFunction: this
 				msg: SCI_GETKEYSUNICODE
 				wParam: 0
@@ -667,7 +702,7 @@ isKeyboardInputUnicode: keysUnicodeBoolean
 	#deprecated.
 	this
 		ifNotNil: 
-			[ScintillaLibrary default
+			[Library
 				directFunction: this
 				msg: SCI_SETKEYSUNICODE
 				wParam: keysUnicodeBoolean asParameter

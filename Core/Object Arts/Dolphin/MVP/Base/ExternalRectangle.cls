@@ -56,6 +56,12 @@ centerY
 
 	^(self top + self bottom) // 2!
 
+corner
+	"Answer the Point at the bottom-right corner of the receiver"
+
+	^self bottomRight
+!
+
 extent
 	"Answer a Point representing the extent of the receiver. The x coordinate 
 	is the width and the y coordinate is the height."
@@ -117,6 +123,7 @@ width
 !ExternalRectangle categoriesFor: #center!accessing!public! !
 !ExternalRectangle categoriesFor: #centerX!accessing!public! !
 !ExternalRectangle categoriesFor: #centerY!accessing!public! !
+!ExternalRectangle categoriesFor: #corner!accessing!public! !
 !ExternalRectangle categoriesFor: #extent!accessing!public! !
 !ExternalRectangle categoriesFor: #extent:!accessing!public! !
 !ExternalRectangle categoriesFor: #height!accessing!public! !
@@ -166,6 +173,15 @@ left: left top: top width: width height: height
 		bottom: top+height
 !
 
+origin: originPoint corner: cornerPoint
+	"Answer a new instance of the receiver with the specified origin and opposite corner"
+
+	^self
+		left: originPoint x
+		top: originPoint y
+		right: cornerPoint x
+		bottom: cornerPoint y!
+
 origin: originPoint extent: extentPoint
 	"Answer a new instance of the receiver with the specified origin and extent"
 
@@ -179,5 +195,6 @@ origin: originPoint extent: extentPoint
 !ExternalRectangle class categoriesFor: #icon!constants!public! !
 !ExternalRectangle class categoriesFor: #left:top:right:bottom:!instance creation!public! !
 !ExternalRectangle class categoriesFor: #left:top:width:height:!instance creation!public! !
+!ExternalRectangle class categoriesFor: #origin:corner:!instance creation!public! !
 !ExternalRectangle class categoriesFor: #origin:extent:!instance creation!public! !
 

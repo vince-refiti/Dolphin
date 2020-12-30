@@ -16,11 +16,10 @@ Instance Variables:
 !RBMethod categoriesForClass!Refactory-Model! !
 !RBMethod methodsFor!
 
-literal: anObject containsReferenceTo: aSymbol 
-	anObject = aSymbol ifTrue: [^true].
+literal: anObject containsReferenceTo: aSymbol
+	anObject == aSymbol ifTrue: [^true].
 	anObject class = Array ifFalse: [^false].
-	anObject 
-		do: [:each | (self literal: each containsReferenceTo: aSymbol) ifTrue: [^true]].
+	anObject do: [:each | (self literal: each containsReferenceTo: aSymbol) ifTrue: [^true]].
 	^false!
 
 method
@@ -51,17 +50,14 @@ refersToClassNamed: aSymbol
 	^(searcher executeTree: self parseTree initialAnswer: false) 
 		or: [self refersToSymbol: aSymbol]!
 
-refersToSymbol: aSymbol 
+refersToSymbol: aSymbol
 	| searcher |
 	searcher := ParseTreeSearcher new.
-	searcher
-		matches: aSymbol printString do: [:node :answer | true];
-		matches: '`#literal'
-			do: [:node :answer | answer or: [self literal: node value containsReferenceTo: aSymbol]].
-	(RBScanner isSelector: aSymbol) 
+	searcher matches: '`#literal'
+		do: [:node :answer | answer or: [self literal: node value containsReferenceTo: aSymbol]].
+	(RBScanner isSelector: aSymbol)
 		ifTrue: 
-			[searcher 
-				matches: '`@object ' , (ParseTreeSearcher buildSelectorString: aSymbol)
+			[searcher matches: '`@object ' , (ParseTreeSearcher buildSelectorString: aSymbol)
 				do: [:node :answer | true]].
 	^searcher executeTree: self parseTree initialAnswer: false!
 

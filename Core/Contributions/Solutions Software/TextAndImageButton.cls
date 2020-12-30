@@ -14,6 +14,11 @@ buildImageManager
 
 	self image ifNotNil: [ :img | self imageIndex: (self imageManager addImage: img)]!
 
+contentOffsetOn: aCanvas
+	self alignment = #left ifTrue: [^8].
+	self alignment = #center ifTrue: [^(self extent x - (self labelWidthOn: aCanvas)) // 2].
+	self alignment = #right ifTrue: [^self extent x - 8 - (self labelWidthOn: aCanvas)]!
+
 currentBackcolor
 
 	"Modify the backcolor to reflect the receiver's state"
@@ -72,26 +77,35 @@ drawOn: aCanvas
 	(self hasFocus and: [self shouldShowFocusRect]) ifTrue: [UserLibrary default drawFocusRect: aCanvas asParameter lprc: (self clientRectangle insetBy: 3) asParameter]!
 
 drawTextOn: aCanvas
-
-	| textPos |
-
+	| textPos textFlags |
 	aCanvas font: self actualFont.
 	textPos := self textPosOn: aCanvas.
-
+	textFlags := self shouldShowKeyboardAccelerators ifTrue: [0] ifFalse: [DT_HIDEPREFIX].
 	self isThemed
-	ifTrue:
-		[ThemeLibrary default 
-			drawThemeText: self theme 
-			hdc: aCanvas asParameter 
-			iPartId: BP_PUSHBUTTON
-			iStateId: self iState 
-			pszText: self displayText asUtf16String 
-			iCharCount: -1 dwTextFlags: 0 dwTextFlags2: 0 
-			pRect: (textPos extent: self extent) asParameter]
-	ifFalse:
-		[self isEnabled
-			ifTrue: [aCanvas formatText: self displayText in: (textPos extent: self extent)]
-			ifFalse: [aCanvas prefixTextDisabled: self displayText at: textPos]]!
+		ifTrue: 
+			[ThemeLibrary default
+				drawThemeText: self theme
+				hdc: aCanvas asParameter
+				iPartId: BP_PUSHBUTTON
+				iStateId: self iState
+				pszText: self text asUtf16String
+				iCharCount: -1
+				dwTextFlags: textFlags
+				dwTextFlags2: 0
+				pRect: (textPos extent: self extent) asParameter]
+		ifFalse: 
+			[self isEnabled
+				ifTrue: 
+					[aCanvas
+						formatText: self text
+						in: (textPos extent: self extent)
+						flags: textFlags]
+				ifFalse: 
+					[textFlags := self shouldShowKeyboardAccelerators ifTrue: [0] ifFalse: [DSS_HIDEPREFIX].
+					aCanvas
+						stateText: self text
+						at: textPos
+						flags: DST_PREFIXTEXT | DSS_DISABLED | textFlags]]!
 
 dropDownMenu
 	^dropDownMenu!
@@ -173,23 +187,12 @@ imageManager: anObject
 	imageManager := anObject!
 
 imagePosOn: aCanvas
-
-	| textOffsetX xPos yPos|
-
-	(self isImageFirst or: [self hasText not])
-		ifTrue: [textOffsetX := 0]
-		ifFalse: [textOffsetX := (aCanvas textExtent: self unadornedText) x + self imageGap].
-
-	self alignment = #left ifTrue: [xPos := 8].
-	self alignment = #center ifTrue: [xPos := (self extent x - (self labelWidthOn: aCanvas)) // 2].
-	self alignment = #right ifTrue: [xPos := (self extent x - 8) - (self labelWidthOn: aCanvas)].
-
-	xPos := xPos + textOffsetX.
+	| xPos yPos |
+	xPos := self contentOffsetOn: aCanvas.
+	(self hasText and: [self isImageFirst not])
+		ifTrue: [xPos := xPos + (self textExtentOn: aCanvas) x + self imageGap].
 	yPos := (self extent y - self imageExtent y) // 2.
-
-	^self clientRectangle topLeft + ((xPos@yPos) max: 0@0)
-
-!
+	^self clientRectangle topLeft + (xPos @ yPos max: 0 @ 0)!
 
 isImageFirst
 
@@ -204,20 +207,9 @@ isMenuOpen: anObject
 	isMenuOpen := anObject!
 
 labelWidthOn: aCanvas
-
-	| imageWidth textWidth|
-
-	imageWidth := 0.
-	textWidth := 0.
-
-	self hasImage 
-		ifTrue: [imageWidth := self imageExtent x]
-		ifFalse: [imageWidth := 0].
-
-	self hasText 
-		ifTrue: [textWidth := (aCanvas textExtent: self unadornedText) x]
-		ifFalse: [textWidth := 0].
-
+	| imageWidth textWidth |
+	imageWidth := self hasImage ifTrue: [self imageExtent x] ifFalse: [0].
+	textWidth := self hasText ifTrue: [(self textExtentOn: aCanvas) x] ifFalse: [0].
 	^imageWidth + self imageGap + textWidth!
 
 preTranslateKeyboardInput: aMSG
@@ -265,23 +257,19 @@ standardTransitionDurations
 
 	^durations!
 
+textExtentOn: aCanvas
+	^aCanvas
+		textExtent: self text
+		width: 0
+		flags: DT_SINGLELINE!
+
 textPosOn: aCanvas
-
-	| textExtent imageOffsetX xPos yPos |
-
-	textExtent := aCanvas textExtent: self unadornedText.
+	| xPos yPos |
+	xPos := self contentOffsetOn: aCanvas.
 	(self hasImage and: [self isImageFirst])
-		ifTrue: [imageOffsetX := self imageExtent x + self imageGap]
-		ifFalse: [imageOffsetX := 0].
-
-	self alignment = #left ifTrue: [xPos := 8].
-	self alignment = #center ifTrue: [xPos := (self extent x - (self labelWidthOn: aCanvas)) // 2].
-	self alignment = #right ifTrue: [xPos := (self extent x - 8) - (self labelWidthOn: aCanvas)].
-
-	xPos := xPos + imageOffsetX.
-	yPos := (self extent y - textExtent y) // 2.
-
-	^self clientRectangle topLeft + ((xPos@yPos) max: 0@0)!
+		ifTrue: [xPos := xPos + self imageExtent x + self imageGap].
+	yPos := (self extent y - (self textExtentOn: aCanvas) y) // 2.
+	^self clientRectangle topLeft + (xPos @ yPos max: 0 @ 0)!
 
 trackMenu
 
@@ -300,8 +288,8 @@ wmLButtonDown: message wParam: wParam lParam: lParam
 
 	event := 
 		MouseEvent 
+			window: self
 			message: message
-			handle: handle
 			wParam: wParam
 			lParam: lParam.
 
@@ -314,6 +302,7 @@ wmLButtonDown: message wParam: wParam lParam: lParam
 
 	^super wmLButtonDown: message wParam: wParam lParam: lParam! !
 !TextAndImageButton categoriesFor: #buildImageManager!operations!private! !
+!TextAndImageButton categoriesFor: #contentOffsetOn:!calculating!private! !
 !TextAndImageButton categoriesFor: #currentBackcolor!accessing!public! !
 !TextAndImageButton categoriesFor: #drawBackgroundOn:!drawing!private! !
 !TextAndImageButton categoriesFor: #drawDropDownArrowOn:!drawing!private! !
@@ -345,6 +334,7 @@ wmLButtonDown: message wParam: wParam lParam: lParam
 !TextAndImageButton categoriesFor: #preTranslateKeyboardInput:!event handling!private! !
 !TextAndImageButton categoriesFor: #rebuildImageManager!operations!private! !
 !TextAndImageButton categoriesFor: #standardTransitionDurations!accessing!public! !
+!TextAndImageButton categoriesFor: #textExtentOn:!calculating!public! !
 !TextAndImageButton categoriesFor: #textPosOn:!calculating!private! !
 !TextAndImageButton categoriesFor: #trackMenu!operations!private! !
 !TextAndImageButton categoriesFor: #wmLButtonDown:wParam:lParam:!event handling-win32!private! !

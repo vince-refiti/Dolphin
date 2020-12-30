@@ -1,6 +1,7 @@
 ﻿| package |
 package := Package name: 'Lagoon Tests'.
 package paxVersion: 1;
+	preDeclareClassesOnLoad: false;
 	basicComment: ''.
 
 
@@ -24,7 +25,8 @@ package setPrerequisites: #(
 	'..\MVP\Icons\Internal Bitmaps and Icons'
 	'Lagoon Image Stripper'
 	'..\..\Samples\MVP\Notepad\Notepad'
-	'..\..\..\Contributions\Refactory\Refactoring Browser\Environments\RBEnvironments').
+	'..\..\..\Contributions\Refactory\Refactoring Browser\Environments\RBEnvironments'
+	'..\..\Samples\MVP\RegEdit\RegEdit').
 
 package!
 

@@ -553,6 +553,9 @@ centerExtent: aPoint within: aParentView
 clearHandle
 	self handle: nil!
 
+clearStateRestoring
+	flags := flags bitAnd: ##(StateRestoringMask bitInvert)!
+
 clientExtent
 	"Answer a <Point> representing the extent of the receiver's client area."
 
@@ -1317,13 +1320,11 @@ font: aFontOrNil
 !
 
 fontChanged
-	"Private - The receiver's font has been changed. The default is to cause
-	the receiver ot repaint. Overidden by subclasses that need to apply the 
-	font to a Windows control"
+	"Private - The receiver's font has been changed. The default is to cause the receiver ot repaint. Should be overidden by subclasses that need to apply the  font to a Windows control"
 
-	self subViewsDo: [:each | each fontChanged ].
-	self invalidate; invalidateCalculatedExtent
-!
+	self
+		invalidate;
+		invalidateCalculatedExtent!
 
 forecolor
 	"Answers the foreground colour of the receiver.
@@ -1972,12 +1973,16 @@ isStateRestoring
 !
 
 isStateRestoring: aBoolean
-	"Private - Set a flag to indicate that state of the receiver is being restored according 
-	to aBoolean. Used to disable some notification during this period when sibling views 
-	may not yet be valid"
+	"Private - Set a flag to indicate that state of the receiver is being restored according to aBoolean. 
+	Used to disable some notifications during the period when the view or its siblings/children may not yet be valid."
 
-	flags := flags mask: StateRestoringMask set: aBoolean
-!
+	aBoolean
+		ifTrue: [self setStateRestoring]
+		ifFalse: 
+			[self isStateRestoring
+				ifTrue: 
+					[self clearStateRestoring.
+					self onStateRestored]]!
 
 isTabStop
 	"Answers whether the receiver has the WS_TABSTOP style."
@@ -2125,6 +2130,14 @@ mapPoint: aPoint to: anotherView
 		hWndTo: anotherView asParameter
 		lpPoints: pt
 		cPoints: 1.
+	^pt asPoint!
+
+mapPointToScreen: aPoint
+	"Maps the `Point` argument from the coordinate system of the receiver to screen coordindates."
+
+	| pt |
+	pt := POINTL fromPoint: aPoint.
+	UserLibrary default clientToScreen: handle lpPoint: pt.
 	^pt asPoint!
 
 mapRectangle: aRectangle to: anotherView
@@ -2504,6 +2517,13 @@ onPositionChanging: aPositionEvent
 	self presenter trigger: #positionChanging: with: aPositionEvent.
 	^nil!
 
+onRestoredFromProxy
+	"Override point for subclasses to take any further action they might want on rehydration"
+
+	"Default actions are performed in #restoreFromProxy:"
+
+	!
+
 onRightButtonDoubleClicked: aMouseEvent
 	"Default handler for a mouse Right button double-click event.
 	Accept the default window processing."
@@ -2536,6 +2556,12 @@ onStartup
 	"Ensure that the handle of the receiver is set to nil at startup."
 
 	self clearHandle!
+
+onStateRestored
+	"Override point for subclasses to perform post-state restoral actions. State may be restored in three circumstances:
+		1) Rehydration from binary filed state
+		2) Restore after image save
+		3) Recreation after the change of style flag that can only be specified at view creation time."!
 
 onSubViewAdded: aView
 	"Received when aView has been added to the receiver.
@@ -2851,6 +2877,9 @@ printOn: aStream
 		print: self displayString;
 		nextPut: $)!
 
+propagateSettingsChange: aSettingsChangeEvent
+	self subViewsDo: [:each | each settingChanged: aSettingsChangeEvent]!
+
 queryCommand: aCommandQuery
 	"Private - Update aCommandQuery to indicates how a command would be processed.
 	if sent to the receiver. Answers whether the receiver recognised the command
@@ -3040,6 +3069,29 @@ resolutionScaledBy: scale
 
 !
 
+restoreFromProxy: aViewProxy
+	"Private - Complete state restoration from proxy form by apply the saved state, and restoring the subviews from their proxies."
+
+	"The creationParent is already set, but we set it again here
+	to so that #parentView: can set the WS_CHILD style appropriately."
+
+	self parentView: self creationParentView.
+	self isStateRestoring: true.
+	self state: aViewProxy state.
+	aViewProxy subViews do: [:proxy | proxy restoreView].
+	aViewProxy placement
+		ifNotNil: [:placement | self restorePlacement: placement resolution: aViewProxy resolution].
+	self isStateRestoring: false.
+
+	"The STB mechanism does not save and restore event triggers.
+	We must cause these to be rebuilt here"
+	self connectModel.
+
+	"In some situations (notably when restoring a ReferenceView for example) it may be that nothing has
+	yet caused the view to be realized. We do this here by forcing an access to its window handle. #57"
+	self handle.
+	self onRestoredFromProxy!
+
 restorePlacement: aWINDOWPLACEMENT resolution: aPointResolution 
 	"Private - Restore the placement for the receiver to aWINDOWPLACEMENT which was
 	measured at a screen resolution of aPointResolution. If the current resolution is different
@@ -3218,6 +3270,9 @@ setScrollInfo: siStruct bar: bar
 		lpsi: siStruct
 		fRedraw: true!
 
+setStateRestoring
+	flags := flags bitOr: StateRestoringMask!
+
 setTimer: id interval: interval
 	"Sets up a timer for this window. The <integer> timer identifier (id)
 	will be passed to the wmTimer:wParam:lParam: event approximately every
@@ -3231,6 +3286,12 @@ setTimer: id interval: interval
 		nIDEvent: id
 		uElapse: interval
 		lpTimerFunc: nil) ~= 0!
+
+settingChanged: aSettingsChangeEvent
+	"Private - A system wide setting has been changed. Propagate the change event to all sub-views, and updated as required."
+
+	self propagateSettingsChange: aSettingsChangeEvent.
+	self updateSetting: aSettingsChangeEvent!
 
 setWindowExStyle: anInteger
 	"Private - Set the receiver's extended window style bits to anInteger."
@@ -3646,6 +3707,9 @@ updateModel
 	override this method to update the model if there have been
 	changes"
 !
+
+updateSetting: aSettingsChangeEvent
+	(font isNil and: [aSettingsChangeEvent isFontChange]) ifTrue: [self fontChanged]!
 
 usePreferredExtent
 	"Answers true if the receiver's preferred extent should be used by a layout manager when
@@ -4542,6 +4606,7 @@ zOrderTop
 !View categoriesFor: #canvas!drawing!public! !
 !View categoriesFor: #centerExtent:within:!geometry!private! !
 !View categoriesFor: #clearHandle!private!realizing/unrealizing! !
+!View categoriesFor: #clearStateRestoring!helpers!private! !
 !View categoriesFor: #clientExtent!geometry!public! !
 !View categoriesFor: #clientHeight!geometry!public! !
 !View categoriesFor: #clientRectangle!geometry!public! !
@@ -4739,6 +4804,7 @@ zOrderTop
 !View categoriesFor: #managedSubViews!hierarchy!public!sub views! !
 !View categoriesFor: #managedSubViewsDo:!hierarchy!public!sub views! !
 !View categoriesFor: #mapPoint:to:!geometry!public! !
+!View categoriesFor: #mapPointToScreen:!geometry!public! !
 !View categoriesFor: #mapRectangle:to:!geometry!public! !
 !View categoriesFor: #maxExtent!accessing!public! !
 !View categoriesFor: #minExtent!accessing!public! !
@@ -4791,11 +4857,13 @@ zOrderTop
 !View categoriesFor: #onPaintRequired:!event handling!public! !
 !View categoriesFor: #onPositionChanged:!event handling!public! !
 !View categoriesFor: #onPositionChanging:!event handling!public! !
+!View categoriesFor: #onRestoredFromProxy!binary filing!public! !
 !View categoriesFor: #onRightButtonDoubleClicked:!event handling!public! !
 !View categoriesFor: #onRightButtonPressed:!event handling!public! !
 !View categoriesFor: #onRightButtonReleased:!event handling!public! !
 !View categoriesFor: #onSetFocus!event handling!public! !
 !View categoriesFor: #onStartup!event handling!public! !
+!View categoriesFor: #onStateRestored!event handling!public! !
 !View categoriesFor: #onSubViewAdded:!event handling!public! !
 !View categoriesFor: #onSubViewRemoved:!event handling!public! !
 !View categoriesFor: #onSysKeyPressed:!event handling!public! !
@@ -4838,6 +4906,7 @@ zOrderTop
 !View categoriesFor: #previousSiblingView!hierarchy!public!sub views! !
 !View categoriesFor: #primHookWindowCreate:!helpers!private! !
 !View categoriesFor: #printOn:!development!printing!public! !
+!View categoriesFor: #propagateSettingsChange:!event handling!private! !
 !View categoriesFor: #queryCommand:!commands!private! !
 !View categoriesFor: #queryCommandRouteFor:!commands!private! !
 !View categoriesFor: #queryContextMenu!menus!public! !
@@ -4857,6 +4926,7 @@ zOrderTop
 !View categoriesFor: #requestLayoutRectangle:!geometry!public! !
 !View categoriesFor: #resolution!accessing!public! !
 !View categoriesFor: #resolutionScaledBy:!geometry!private! !
+!View categoriesFor: #restoreFromProxy:!binary filing!private! !
 !View categoriesFor: #restorePlacement:resolution:!geometry!private! !
 !View categoriesFor: #richText:!accessing!private! !
 !View categoriesFor: #screenRectangle!geometry!public! !
@@ -4877,7 +4947,9 @@ zOrderTop
 !View categoriesFor: #setParent:!accessing!private! !
 !View categoriesFor: #setRedraw:!operations!private! !
 !View categoriesFor: #setScrollInfo:bar:!accessing!private! !
+!View categoriesFor: #setStateRestoring!accessing!private! !
 !View categoriesFor: #setTimer:interval:!public!timers! !
+!View categoriesFor: #settingChanged:!event handling!private!updating! !
 !View categoriesFor: #setWindowExStyle:!accessing-styles!private! !
 !View categoriesFor: #setWindowLong:to:!accessing!private! !
 !View categoriesFor: #setWindowPosAfter:x:y:width:height:flags:!geometry!private! !
@@ -4918,6 +4990,7 @@ zOrderTop
 !View categoriesFor: #unregisterHotKeyId:!helpers!public! !
 !View categoriesFor: #update!drawing!public! !
 !View categoriesFor: #updateModel!public!updating! !
+!View categoriesFor: #updateSetting:!event handling!private!updating! !
 !View categoriesFor: #usePreferredExtent!accessing!public! !
 !View categoriesFor: #usePreferredExtent:!accessing!public! !
 !View categoriesFor: #validate!drawing!public! !
@@ -5306,7 +5379,7 @@ initialize
 			[MessageMap := self buildMessageMap
 						isImmutable: true;
 						yourself].
-	VMLibrary default primRegistryAt: 54 put: #subclassWindow:!
+	VMLibrary default registryAtIndex: 54 put: #subclassWindow:!
 
 mapRectangle: aRectangle from: aSourceView to: aDestinationView
 	"Answers a RECT like aRectangle mapped from the coordinate system of aSourceView 

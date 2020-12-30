@@ -349,7 +349,7 @@ block: anAspectSymbol
 	for some kind of <valuable> (not necessarily a block).
 	The aspect is editable using a <ValueWorkspace> presenter."
 
-	^(self name: anAspectSymbol presenterBlock: nil)
+	^(self name: anAspectSymbol presenterBlock: self defaultPresenterBlock)
 		beMultilineValue;
 		yourself!
 
@@ -697,13 +697,15 @@ multilineString: aStringAspectSymbol
 
 	^self name: aStringAspectSymbol
 		presenterBlock: 
-			[:p :m | 
+			[:p :m |
 			| presenter |
-			presenter := TextPresenter 
+			presenter := TextPresenter
 						create: 'Multiline text'
 						in: p
 						on: m.
-			presenter view updatePerChar: true.
+			presenter view
+				updatePerChar: true;
+				tabWidth: 4.
 			presenter]!
 
 name: aSymbol

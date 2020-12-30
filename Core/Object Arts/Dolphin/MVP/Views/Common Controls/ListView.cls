@@ -1,32 +1,41 @@
 ﻿"Filed out from Dolphin Smalltalk 7"!
 
 IconicListAbstract subclass: #ListView
-	instanceVariableNames: 'lastClickedColIndex columns viewMode lastSelIndices iconSpacing lvStyle thumbnailExtent moreParams'
-	classVariableNames: 'LvModes NoImageIndex RevertSelMessage SelectionStateMask UnknownItem'
+	instanceVariableNames: 'lastClickedColIndex columns viewMode lastSelIndices iconSpacing lvStyle thumbnailExtent lvFlags backImage backImageOffset backImageAlpha approvedSelIndices _unused35 _unused36 _unused37 _unused38 _unused39 _unused40 _unused41 _unused42 _unused43 _unused44 _unused45'
+	classVariableNames: 'BackImageIsTiledMask LvModes NoImageIndex SelectionStateMask UnknownItem'
 	poolDictionaries: 'ListViewConstants'
 	classInstanceVariableNames: ''!
 ListView guid: (GUID fromString: '{87b4c730-026e-11d3-9fd7-00a0cc3e4a32}')!
+ListView addClassConstant: 'BackImageIsTiledMask' value: 16r1!
 ListView addClassConstant: 'NoImageIndex' value: 16r0!
-ListView comment: 'ListView is the <listView> implementing the Windows "SysListView32" common control. It is for single selection use and, therefore, implements the <selectableItems> protocol for use with any <listModel>.
+ListView comment: '`ListView` is the `<listView>` implementing the Windows "SysListView32" common control. It is for single selection use and, therefore, implements the `<selectableItems>` protocol for use with any `<listModel>`.
 
-A ListView is capable of displaying it items in one of four modes (#smallIcons, #largeIcons, #list, #report) which can be set using the #viewMode aspect. In the first three of these modes the list effectively has only one column being displayed; this is the primary column. Columns are described using instances of ListViewColumn. See the comment for this class for details on how to set up a column to display the appropriate information for a list item.
+A `ListView` is capable of displaying it items in one of a number of modes, e.g. `#smallIcons`, `#largeIcons`, `#list`, and `#report` which can be set using the `#viewMode` aspect. In all but `#report` mode the list effectively has only one column being displayed; this is the primary column. Columns are described using instances of `ListViewColumn`. See the comment for this class for details on how to set up a column to display the appropriate information for a list item.
 
 The underlying Windows common control is a sophisticated one with many options. We have not attempted to wrap all of the features of this control within the ListView class. However, you should find that much of the most useful functionality is present.
 
-Instance Variables:
-	primaryColumn	<ListViewColumn> which is the main column in the list.
-	columns			<OrderedCollection> of <ListViewColumn>s which are displayed in #report mode (excluding the primary column).
-	viewMode		<Symbol> describing the mode in which the list is displaying items.
-	lastSel			<integer> index of the last selection made.
-	iconSpacing		<Point> or nil, representing the explicit spacing between icons in #smallIcons and #largeIcons view modes.
-	lvStyle			<integer> representing the Windows extended list view style.
-	_lvReserved1	Reserved for future system use. Do not use.
-	_lvReserved2	Reserved for future system use. Do not use.
+## Instance Variables:
+  `lastClickedColIndex`	`<integer>` index of the last column clicked for sorting
+  `columns`			`OrderedCollection` of `ListViewColumn`s which are displayed in `#report` mode.
+  `viewMode`			`Symbol` describing the mode in which the list is displaying items.
+  `lastSelIndices`		`Array` of `<integer>`. The indices of the last selected rows.
+  `iconSpacing`		`Point`, optional. Represents the explicit spacing between icons in icon view modes. Default is to use the control''s preferred spacing.
+  `lvStyle`				`<integer>`. List view extended style flags
+  `thumbnailExtent`		`Point`, optional, representing the size of icons when in `#thumbnail` view mode. Default is 64@64.
+  `lvFlags`				`<integer>` flags specific to list views
+  `backImage`			`<Bitmap>`, optional. Background image. Default, nil.
+  `backImageOffset`		`Point`, optional. Origin of the background image. Default is 0@0.
+  `backImageAlpha`		`<integer>`, optional. Alpha percent for the background image. Default is 100.
+  
+## Class Variables:
+  `BackImageIsTiledMask`	`<integer>`. Flag mask for backImageIsTiled.
+  `LvModes`				`IdentityDictionary` mapping symbolic view mode names to the corresponding list view style constants. 
+  `NoImageIndex`			`<integer>`
+  `RevertSelMessage`		`<integer>` holding the private ''RevertSelection'' message.
+  `SelectionStateMask`		`<integer>`
+  `UnknownItem`			`<Object>`
 
-Class Variables:
-	LvnMap			<Array> which is a map between integer Windows notification messages and <selector>s.
-	RevertSelMessage	<integer> holding the private ''RevertSelection'' message.
-	ViewModes			<IdentityDictionary> mapping symbolic view mode names to the corresponding list view style constants.
+
 '!
 !ListView categoriesForClass!MVP-Views! !
 !ListView methodsFor!
@@ -56,15 +65,16 @@ addColumn: newColumn
  
 !
 
-addColumn: newColumn atIndex: columnIndex 
+addColumn: newColumn atIndex: columnIndex
 	"Insert the <ListViewColumn>, newColumn, into the receiver
 	at the <integer> index columnIndex, shifting the positions of all 
 	subsequent columns up by one. Answers the inserted column."
 
-	lastClickedColIndex notNil 
+	lastClickedColIndex notNil
 		ifTrue: [lastClickedColIndex >= columnIndex ifTrue: [lastClickedColIndex := lastClickedColIndex + 1]].
 	columns add: newColumn beforeIndex: columnIndex.
 	self basicAddColumn: newColumn atIndex: columnIndex.
+	self autoResizeColumns.
 	self invalidateLayout.
 	self updateAll.
 	^newColumn!
@@ -113,6 +123,15 @@ addOrUpdate: aBoolean nonVirtualItems: aSequenceableCollection afterIndex: anInt
 						indent: 0.
 					self lvmSetItem: lvItem]]!
 
+adjustForStaticEdgeBug: aRectangle
+	"#1063: If we have a static edge but no other edge style, the view behaves as though it
+	is slightly smaller than the reported client width for the purposes of calculating if scrollbars
+	are shown. Adjust the available width a little to prevent this."
+
+	(self hasStaticEdge and: [(self hasClientEdge or: [self hasBorder]) not])
+		ifTrue: [aRectangle corner: aRectangle corner - 2].
+	^aRectangle!
+
 allColumns
 	"Answer an <sequencedReadableCollection> of all the columns in the view including
 	the primary column."
@@ -141,29 +160,35 @@ anchorIndex: anInteger
 applyImageLists
 	"Private - Set the receiver's image lists from the image managers."
 
-	| largeImList smallImList stateImList |
+	| largeImList smallExt |
 	largeImList := self customImageExtent
 				ifNotNil: [:ext | self thumbnailsImageManager imageListWithExtent: ext]
 				ifNil: 
 					[thumbnailsImageManager := nil.
 					self imageManager ifNotNil: [:im | im imageListWithExtent: self largeIconExtent]].
-	smallImList := self imageManager ifNotNil: [:im | im imageListWithExtent: self smallImageExtent].
-	stateImList := self stateImageManager ifNotNil: [:stateImages | stateImages imageListWithExtent: self smallImageExtent].
-	self lvmSetImageList: smallImList type: LVSIL_SMALL.
+	smallExt := self smallIconExtent.
+	self lvmSetImageList: (self imageManager ifNotNil: [:im | im imageListWithExtent: smallExt])
+		type: LVSIL_SMALL.
 	self lvmSetImageList: largeImList type: LVSIL_NORMAL.
-	self lvmSetImageList: stateImList type: LVSIL_STATE!
+	self hasCheckBoxes
+		ifFalse: 
+			[self lvmSetImageList: (self stateImageManager
+						ifNotNil: [:stateImages | stateImages imageListWithExtent: smallExt])
+				type: LVSIL_STATE]!
 
 autoResizeColumns
 	"Private - Attempt to share the available width in the receiver between all automagically resizeable
 	columns. This only has a visible effect in #report mode, or if the list is subsequently switched to report mode."
 
-	self isReportMode ifTrue: [self autoResizeColumns: self clientWidth]!
+	self isReportMode
+		ifTrue: [self autoResizeColumns: (self adjustForStaticEdgeBug: self clientRectangle) width]!
 
-autoResizeColumns: anInteger
-	"Private - Attempt to share the specified <integer> width between all automagically
-	resizeable columns in the receiver. This only has a visible effect in #report mode."
+autoResizeColumns: clientWidth
+	"Private - Attempt to share the specified <integer> width (which must be the client width of the view,
+	after subtracting for borders and such) between all automagically resizeable columns in the receiver.
+	This only has a visible effect in #report mode."
 
-	| cols autoCols fixedWidth idealWidth remainingWidth clientWidth |
+	| cols autoCols fixedWidth idealWidth remainingWidth |
 	fixedWidth := 0.
 	autoCols := 0.
 	cols := self allColumns.
@@ -173,12 +198,6 @@ autoResizeColumns: anInteger
 				ifTrue: [autoCols := autoCols + 1]
 				ifFalse: [fixedWidth := fixedWidth + (self lvmGetColumnWidth: eachKey - 1)]].
 	autoCols == 0 ifTrue: [^self].
-	"Not sure where the magic number 4 comes from, but it doesn't appear to be correct any more"
-	clientWidth := anInteger - 4.
-	"#1063: ListView doesn't seem to report its actual client width correctly if it has a static edge
-	but not one of the other border styles, hence we must 'adjust' it a little in this case."
-	(self hasStaticEdge and: [(self hasClientEdge or: [self hasBorder]) not])
-		ifTrue: [clientWidth := clientWidth - 2].
 	remainingWidth := clientWidth - fixedWidth.
 	remainingWidth <= 0 ifTrue: [^self].
 	"Split the available width between the auto columns - note the use of fractional arithmetic to avoid accumulating a rounding error"
@@ -204,30 +223,24 @@ backcolorChanged
 	self backImage notNil ifTrue: [self backImageChanged]!
 
 backImage
-	^self moreParamsAt: 1!
+	^backImage!
 
 backImage: aBitmapOrNil 
-	self moreParamsAt: 1 put: aBitmapOrNil.
+	backImage := aBitmapOrNil.
 	self backImageChanged!
 
 backImageAlphaPercent
-	| percent |
-	percent := self moreParamsAt: 4.
-	percent ifNil: [self backImageAlphaPercent: (percent := 100)].
-	^percent!
+	^backImageAlpha ?? 100!
 
-backImageAlphaPercent: anInteger 
-	self backImage 
-		ifNotNil: 
-			[self moreParamsAt: 4 put: anInteger.
-			self backImageChanged]!
+backImageAlphaPercent: anInteger
+	backImageAlpha := anInteger.
+	backImage ifNotNil: [self backImageChanged]!
 
 backImageChanged
 	"Private - The background image has been changed; apply it into the receiver. We take a copy here
 	since Windows takes ownership of the bitmap handle that we give it"
 
-	| backImage bk isTiled offset |
-	backImage := self backImage.
+	| bk isTiled offset |
 	bk := LVBKIMAGEW new.
 	bk bitmap: (backImage notNil
 				ifTrue: 
@@ -242,26 +255,18 @@ backImageChanged
 	self lvmSetBkImage: bk!
 
 backImageIsTiled
-	| isTiled |
-	isTiled := self moreParamsAt: 2.
-	isTiled ifNil: [self backImageIsTiled: (isTiled := false)].
-	^isTiled!
+	^self lvFlags allMask: BackImageIsTiledMask!
 
-backImageIsTiled: aBoolean 
-	self backImage 
-		ifNotNil: 
-			[self moreParamsAt: 2 put: aBoolean.
-			self backImageChanged]!
+backImageIsTiled: aBoolean
+	lvFlags := self lvFlags mask: BackImageIsTiledMask set: aBoolean.
+	backImage ifNotNil: [self backImageChanged]!
 
 backImageOffset
-	| offset |
-	offset := self moreParamsAt: 3.
-	offset ifNil: [self backImageOffset: (offset := Point zero)].
-	^offset!
+	^backImageOffset ?? Point zero!
 
 backImageOffset: aPoint 
-	self moreParamsAt: 3 put: aPoint.
-	self backImageChanged!
+	backImageOffset := aPoint = Point zero ifFalse: [aPoint].
+	backImage ifNotNil: [self backImageChanged]!
 
 basicAdd: anObject atIndex: anInteger
 	"Private - Adds an item to the list view at the index given by anInteger"
@@ -526,28 +531,23 @@ defaultWindowStyle
 			LVS_OWNERDATA	"This style is necessary for virtual list behaviour"
 			)!
 
-dispatchRegistered: registeredId wParam: wParam lParam: lParam
-	"Private - Dispatch the registered message which was sent to the receiver."
-
-	^registeredId == RevertSelMessage
-		ifTrue: [self revertSelection. 0]
-		ifFalse: [super dispatchRegistered: registeredId wParam: wParam lParam: lParam]!
-
 editLabelStyle
 	"Private - Answer the <integer> style mask used to control whether label editing is enabled
 	in the receiver's control."
 
 	^LVS_EDITLABELS!
 
+ensureItemsVisible: indices
+	| caret |
+	caret := self caretIndex.
+	self ensureVisible: ((indices isEmpty or: [indices includes: caret])
+				ifTrue: [caret]
+				ifFalse: [indices first])!
+
 ensureSelectionVisible
 	"Ensure the selected item is visible, scrolling it into view if necessary."
 
-	| caret selected |
-	caret := self caretIndex.
-	selected := self selectionsByIndex.
-	self ensureVisible: ((selected isEmpty or: [selected includes: caret])
-				ifTrue: [caret]
-				ifFalse: [selected first])!
+	self ensureItemsVisible: self selectionsByIndex!
 
 ensureVisible: anInteger 
 	"Ensure the item with the specified index is visible, scrolling it into view if necessary."
@@ -623,6 +623,15 @@ forgetLastClickedColumn
 	self setColumnIcon: nil atIndex: lastClickedColIndex.
 	lastClickedColIndex := nil!
 
+getItemChecked: anInteger
+	"Answer whether the item with the specified index is 'checked' or not. The result is unspecified if the receiver is not in `hasCheckBoxes` mode."
+	"Implementation mode: The ListView checkboxes feature is really just an application of state images, and the API for managing checked/unchecked is irregular and not very specific.
+		- to determine whether an item is checked, we have to request the state image index using a special message (LVM_GETITEM does not return it). The image index should be 1 for unchecked, and 2 for checked.
+		- to check/uncheck an item, we set the state image index to either 1 or 2. See `setItem:checked:`. If set to 0 (or some other value) then the checkbox will not be showed at all, but will reappear if the user clicks the item. In practice this isn't useful to represent 3 states, as it would be better to have a specific image for the unspecified state."
+
+	^((self lvmGetItemState: anInteger - 1 mask: LVIS_STATEIMAGEMASK)
+		bitShift: ##((LVIS_STATEIMAGEMASK lowBit - 1) negated)) > 1!
+
 getItemText: anInteger
 	| item |
 	item := LVITEMW new
@@ -632,18 +641,24 @@ getItemText: anInteger
 	self lvmGetItem: item.
 	^item pszText!
 
-getMultipleSelections
-	"Private - Answer an <Array> of the <integer> the indices of the selected items in the
-	receiver in ascending order. The array will be empty if there is no selection."
+getSelectedCount
+	"Private - Query the total number of items selected from the control."
 
-	^self withOldWndProc: 
-			[| count index answer |
-			count := self selectedCount.
-			answer := Array new: count.
-			index := -1.
-			1 to: count
-				do: [:i | answer at: i put: (index := self lvmGetNextItem: index flags: LVNI_SELECTED) + 1].
-			answer]!
+	^self sendMessage: LVM_GETSELECTEDCOUNT!
+
+getSelectionsByIndex
+	"Private - Query the actual current selections from the control."
+
+	| selections index |
+	selections := Array writeStream: 1.
+	index := -1.
+	
+	[(index := self
+				sendMessage: LVM_GETNEXTITEM
+				wParam: index
+				lParam: LVNI_SELECTED) == -1]
+			whileFalse: [selections nextPut: index + 1].
+	^selections grabContents!
 
 getSingleSelection
 	"Private - Answer the one-based <integer> index of the selected object in the receiver or
@@ -678,14 +693,21 @@ hasButtons
 	^false!
 
 hasCheckBoxes
-	"Answer whether the receiver has check-boxes associated with its items."
+	"Answer whether the receiver has check-boxes associated with its items. This feature is only supported in non-virtual mode."
 
-	^self listViewStyleAllMask: LVS_EX_CHECKBOXES!
+	^(self listViewStyleAllMask: LVS_EX_CHECKBOXES) and: [self isVirtual not]!
 
 hasCheckBoxes: aBoolean
-	"Sets the receiver to either have or not have check-boxes associated with its items."
+	"Set whether the receiver has check-boxes associated with its items. Note that check-boxes are only supported when in non-virtual mode, and are also mutually exclusive with any other use of state images in the list."
 
-	^self listViewStyleMask: LVS_EX_CHECKBOXES set: aBoolean!
+	| hadCheckboxes |
+	hadCheckboxes := (self listViewStyleMask: LVS_EX_CHECKBOXES set: aBoolean)
+				allMask: LVS_EX_CHECKBOXES.
+	hadCheckboxes
+		ifTrue: 
+			["Reset the state as the list does not do this, although ironically it will reset when the checkboxes are turned back on."
+			self setItem: 0 checked: false].
+	^hadCheckboxes!
 
 hasColumnHeaders
 	"Answers true if the receiver has column headers enabled"
@@ -1039,9 +1061,6 @@ largeIconMode
 lastSelIndices
 	^lastSelIndices!
 
-lastSelIndices: anArray 
-	lastSelIndices := anArray!
-
 listMode
 	"Place the receiver in list mode"
 
@@ -1058,6 +1077,9 @@ listViewStyleMask: mask set: aBoolean
 	according to aBoolean. Answer the previous extended style flags."
 
 	^self lvmSetExtendedListViewStyle: mask dwExStyle: aBoolean asParameter negated!
+
+lvFlags
+	^lvFlags ?? 0!
 
 lvmApproximateViewRect: countInteger cx: cxInteger cy: cyInteger 
 	| dword |
@@ -1154,6 +1176,9 @@ lvmGetHeader
 	"Private - Answer the handle of the header control."
 
 	^self sendMessage: LVM_GETHEADER!
+
+lvmGetImageList: wParam
+	^self sendMessage: LVM_GETIMAGELIST wParam: wParam!
 
 lvmGetItem: aLvItem
 	"Private - Retrieve the requested items attributes into the argument, aLvItem."
@@ -1319,7 +1344,7 @@ lvmSetExtendedListViewStyle: dwExMask dwExStyle: dwExStyle
 	Answer the previous style flags."
 
 	| prevStyle |
-	prevStyle := self sendMessage: LVM_SETEXTENDEDLISTVIEWSTYLE wParam: dwExMask lpParam: dwExStyle.
+	prevStyle := self sendMessage: LVM_SETEXTENDEDLISTVIEWSTYLE wParam: dwExMask lParam: dwExStyle.
 	lvStyle := (prevStyle maskClear: dwExMask) maskSet: (dwExStyle bitAnd: dwExMask).
 	^prevStyle!
 
@@ -1500,7 +1525,7 @@ lvnODStateChanged: pNMHDR
 
 	^nil!
 
-maybeSelChanging: aSymbol 
+maybeSelChanging: aSymbol
 	"Private - The selection may be changing as a result of a user action (e.g. due to a keypress). 
 	The argument is either #mouse, or #keyboard, indicating the source of the user input that
 	is initiating the selection change. Give the presenter/view a chance to change their mind."
@@ -1508,95 +1533,31 @@ maybeSelChanging: aSymbol
 	"See if the change is acceptable, and if not revert to original selection if there was one"
 
 	| curSel |
-	curSel := self selectionsByIndex.
+	curSel := self getSelectionsByIndex.
 	curSel = lastSelIndices ifTrue: [^self].
-	(self onSelChanging: curSel cause: aSymbol) 
+	(self onSelChanging: curSel cause: aSymbol)
 		ifFalse: 
-			[self 
+			[self
 				postMessage: RevertSelMessage
 				wParam: 0
 				lParam: 0.
 			^self].
-	self onSelChanged!
+	self onSelChanged: curSel!
 
-moreParams
-	"Private - A cheating way of adding additional instance parameters to the receiver without
-	having to worry about STB upgrading"
+nmBeginDrag: pNMHDR
+	self maybeSelChanging: #mouse.
+	^super nmBeginDrag: pNMHDR!
 
-	moreParams ifNil: [moreParams := Array new: 1].
-	^moreParams!
+nmBeginRDrag: pNMHDR
+	self maybeSelChanging: #mouse.
+	^super nmBeginRDrag: pNMHDR!
 
-moreParamsAt: n 
-	"Private - A cheating way of adding additional instance parameters to the receiver without
-	having to worry about STB upgrading"
-
-	self moreParams at: n ifPresent: [:x | ^x].
-	moreParams resize: n.
-	^nil!
-
-moreParamsAt: n put: anObject 
-	"Private - A cheating way of adding additional instance parameters to the receiver without
-	having to worry about STB upgrading"
-
-	self moreParams at: n.
-	^self moreParams at: n put: anObject!
-
-newSelectionsFromEvent: event
-	"Private - Answer a collection of the <integer> selections that would occur if the <MouseEvent>,
-	event, was was passed to the control."
-
-	| itemClicked anyKeysDown newSelections anchorIndex shiftRange anchorIsSelected |
-	itemClicked := self itemFromPoint: event position.
-	"In single-select mode, the new selection is always the item clicked, or nothing if the click is outside all items."
-	self isMultiSelect ifFalse: [^itemClicked ifNil: [#()] ifNotNil: [:item | {item}]].
-	newSelections := self selectionsByIndex.
-	anyKeysDown := event isShiftDown or: [event isCtrlDown].
-	"If the click is outside all items, and ctrl or shift is down, nothing changes."
-	(itemClicked isNil and: [anyKeysDown]) ifTrue: [^newSelections].
-	"A right or middle click on an already-selected item also does not change the selection,
-	otherwise it would be very frustrating to open the context menu with multiple items selected.
-	The control also chooses to leave the selection alone if modifiers are held during a right/middle click."
-	(event button ~= #left and: [anyKeysDown or: [newSelections includes: itemClicked]])
-		ifTrue: [^newSelections].
-	"Having taken care of the above edge cases, if no keys are down, the behavior is equivalent to the single-select case."
-	anyKeysDown ifFalse: [^itemClicked ifNil: [#()] ifNotNil: [:item | {item}]].
-	"Only Ctrl is down, so we flip the selection state of the clicked item."
-	event isShiftDown
-		ifFalse: 
-			[newSelections := newSelections asSortedCollection.
-			newSelections remove: itemClicked ifAbsent: [newSelections add: itemClicked].
-			^newSelections asArray].
-	"At least Shift is down, so we must start examining the 'anchor'. This is the last item
-	that was clicked with no modifiers, only ctrl, or ctrl + shift (shift-clicks do *not* move the
-	anchor). It acts as the 'start point' for operations where shift is held--they affect
-	the range of items from the anchor to the click point, inclusive. Initially it is zero,
-	i.e. out-of-bounds, in which case holding shift essentially has no effect, and we act only on
-	the item actually clicked."
-	anchorIndex := self anchorIndex.
-	shiftRange := anchorIndex == 0
-				ifTrue: [itemClicked to: itemClicked]
-				ifFalse: [(anchorIndex min: itemClicked) to: (anchorIndex max: itemClicked)].
-	"Only shift is down, not ctrl, so the current selection will be entirely replaced by the marked range."
-	event isCtrlDown ifFalse: [^shiftRange asArray].
-	"Both ctrl and shift are down, so we set the selection state of the affected range to that of the
-	anchor itself. Note that this ignores the selection state of the item actually clicked
-	and everything in between it and the anchor."
-	newSelections := newSelections asSet.
-	anchorIsSelected := newSelections includes: anchorIndex.
-	shiftRange do: (anchorIsSelected
-				ifTrue: [[:i | newSelections add: i]]
-				ifFalse: [[:i | newSelections remove: i ifAbsent: []]]).
-	"For some reason, the item clicked is always left selected, even if we are deselecting the rest
-	of the marked range. This is not true in e.g. Windows Explorer--why is it in Dolphin?"
-	newSelections add: itemClicked.
-	^newSelections asSortedCollection asArray!
-
-nmClick: pNMHDR 
+nmClick: pNMHDR
 	"Private - Handler for a NM_CLICK notification message.
 	We intercept this to catch potential selection changes resulting from a drag-select
 	operation."
 
-	self isMultiSelect ifTrue: [self maybeSelChanging: #mouse].
+	self maybeSelChanging: #mouse.
 	^super nmClick: pNMHDR!
 
 nmNotify: pNMHDR
@@ -1634,13 +1595,20 @@ nmNotify: pNMHDR
 		ifNil: [super nmNotify: pNMHDR]
 		ifNotNil: [:action | self perform: action with: pNMHDR]!
 
-nmRClick: pNMHDR 
+nmRClick: pNMHDR
 	"Private - Handler for a NM_RCLICK notification message.
 	We intercept this to catch potential selection changes resulting from a drag-select
 	operation."
 
-	self isMultiSelect ifTrue: [self maybeSelChanging: #mouse].
+	self maybeSelChanging: #mouse.
 	^super nmRClick: pNMHDR!
+
+nmSelChanged: anExternalAddress 
+	"Private - Default handler for the ??N_SELCHANGED notification message."
+
+	"We don't expect to receive this for ListViews."
+
+	self shouldNotImplement!
 
 notificationClass
 	"Private - Answer the class of NM_XXXXVIEW structure associated with the receiver."
@@ -1648,26 +1616,26 @@ notificationClass
 	^NMLISTVIEW!
 
 onButtonPressed: aMouseEvent
-	"Private - Common handler for a button down mouse event. Look for potential
-	selection change events, and fire a #selectionChanging: event if necessary.
-	The mouse event is only allowed to propagate to the control if we are happy that 
-	the selection should indeed be changed."
+	"Private - Common handler for a button down mouse event. Look for potential selection change events, and fire a #selectionChanging: event if necessary. The mouse event is only allowed to propagate to the control if we are happy that the selection should indeed be changed."
 
-| indices |
+	| indices |
 	indices := self newSelectionsFromEvent: aMouseEvent.
 	^indices = lastSelIndices
 		ifTrue: [aMouseEvent defaultWindowProcessing]
 		ifFalse: 
 			[(self onSelChanging: indices cause: #mouse)
 				ifTrue: 
-					[| answer |
-					"Selection change permitted?"
-					answer := aMouseEvent defaultWindowProcessing.
-					self onSelChanged.	"Selection may have changed"
-					answer]
+					["Selection change permitted"
+					(Keyboard default isButtonDown: aMouseEvent button)
+						ifFalse: 
+							[self
+								postMessage: aMouseEvent message + 1
+								wParam: (aMouseEvent wParam maskClear: aMouseEvent buttonFlag)
+								lParam: aMouseEvent lParam].
+					aMouseEvent defaultWindowProcessing]
 				ifFalse: 
 					["Suppress the mouse down so not received by control"
-					0]].!
+					0]]!
 
 onDisplayDetailsRequired: anLVITEM
 	"Private - Get the display info for the receiver's row identified by the <LVITEM>, lvitem."
@@ -1716,9 +1684,7 @@ onDisplayDetailsRequired: anLVITEM
 	"State image"
 	((mask allMask: LVIF_STATE) and: [subItem == 0])
 		ifTrue: 
-			[| stateImage |
-			stateImage := self stateImageFromRow: rowObject.
-			stateImage == NoImageIndex ifFalse: [anLVITEM iStateImage: stateImage]].
+			[(self stateImageFromRow: rowObject) ifNotNil: [:stateImage | anLVITEM iStateImage: stateImage]].
 	^0	"suppress default processing"!
 
 onDropDown: aToolbarButton 
@@ -1799,22 +1765,20 @@ onPositionChanged: aPositionEvent
 	control, as that is when it updates scrollbars which can cause the horizontal scrollbar to
 	briefly flicker if the column widths are not adjusted beforehand (#2103)."
 
-	(aPositionEvent isRectangleChanged and: [self isReportMode])
+	(aPositionEvent isResize and: [self isReportMode])
 		ifTrue: 
-			[| width count |
-			width := aPositionEvent width.
+			[| clientRect clientWidth count |
+			clientRect := self
+						adjustForStaticEdgeBug: (self calcClientRectangleFromRectangle: aPositionEvent rectangle).
+			clientWidth := clientRect width.
 			count := self itemCount.
 			count > 0
 				ifTrue: 
-					[| extent height |
-					height := aPositionEvent height.
-					extent := self
-								lvmApproximateViewRect: count
-								cx: width
-								cy: height.
-					extent y - SystemMetrics current scrollbarHeight > height
-						ifTrue: [width := width - SystemMetrics current scrollbarWidth]].
-			self autoResizeColumns: width].
+					[| requiredHeight |
+					requiredHeight := self lvmGetOrigin y + (self itemRect: count) bottom.
+					requiredHeight > clientRect height
+						ifTrue: [clientWidth := clientWidth - SystemMetrics current scrollbarWidth]].
+			self autoResizeColumns: clientWidth].
 	^super onPositionChanged: aPositionEvent!
 
 onRightButtonPressed: aMouseEvent
@@ -1828,46 +1792,48 @@ onRightButtonPressed: aMouseEvent
 
 onSelChanged: anArray 
 	lastSelIndices := anArray.
+	approvedSelIndices := nil.
 	super onSelChanged: anArray!
 
 onSelChanging: anArray cause: aSymbol
-	"Private - Selection is changing in the receiver to the item in the receiver's model 
-	identified by the specified <Collection> of <integer> indices. 
-	Note that #selectionChanging: events are only fired as a direct consequence of 
-	user initiated actions, not in response to selection changes that occur as direct 
-	or indirect results of programmatic actions."
+	"Private - Selection is changing in the receiver to the item in the receiver's model identified by the specified <Collection> of <integer> indices. Answer whether to allow the selection change to proceed.
+	Note that #selectionChanging: events are only fired as a direct consequence of  user initiated actions, not in response to selection changes that occur as direct  or indirect results of programmatic actions."
 
 	^self isStateRestoring or: 
-			[| event |
-			event := SelectionChangingEvent forSource: self.
-			event
-				newSelections: (anArray collect: [:each | self objectFromHandle: each]);
-				oldSelections: (lastSelIndices collect: [:each | self objectFromHandle: each]);
-				cause: aSymbol.
-			self presenter onSelectionChanging: event.
-			event value]!
+			[anArray = approvedSelIndices or: 
+					[| event |
+					event := SelectionChangingEvent forSource: self.
+					event
+						newSelections: (anArray collect: [:each | self objectFromHandle: each]);
+						oldSelections: (lastSelIndices collect: [:each | self objectFromHandle: each]);
+						cause: aSymbol.
+					self presenter onSelectionChanging: event.
+					event value ifTrue: [approvedSelIndices := anArray].
+					event value]]!
 
 onSelRemoved
 	"Private - A selected item has been removed. Update the receiver's selection state to
 	account."
 
-	self onSelChanged: self selectionsByIndex!
+	self onSelChanged: self getSelectionsByIndex!
+
+onStateRestored
+	self backImage ifNotNil: [self backImageChanged]!
 
 onViewCreated
-	"The receiver window has been created. Copy the info held
-	in instance variables across to it, and perform any other state
-	initialization that is required on attachment of the receiver's
-	associated native window."
+	"The receiver window has been created. Copy the info held in instance variables across to it, and perform any other state initialization that is required on attachment of the receiver's associated native window."
 
 	super onViewCreated.
-	lastSelIndices := #().
+	approvedSelIndices := nil.
 	self setControlBackcolor.
 	self forecolor ifNotNil: [:fore | self forecolor: fore].
 	self allColumns
 		keysAndValuesDo: [:eachIndex :eachColumn | self basicAddColumn: eachColumn atIndex: eachIndex].
 	self viewMode: self viewMode.
 	self lvmSetExtendedListViewStyle: -1 dwExStyle: lvStyle.
-	self refreshContents.
+	self basicRefreshContents.
+	self applyImageLists.
+	self basicSelectionsByIndex: lastSelIndices.
 	self iconSpacing ifNotNil: [:spacing | self lvmSetIconSpacing: spacing].
 	(self isVirtual and: [self stateImageManager notNil]) ifTrue: [self lvmSetCallbackMask: LVIS_STATEIMAGEMASK]!
 
@@ -1875,17 +1841,6 @@ primaryColumn
 	"Private - Answer the primary column for the report view mode"
 
 	^self allColumns first!
-
-primarySelectionIndex
-	"Answer the index of the selected item with focus, or zero if there is no selection."
-
-	| caret selected |
-	selected := self selectionsByIndex.
-	^selected isEmpty
-		ifTrue: [0]
-		ifFalse: 
-			[caret := self caretIndex.
-			(selected includes: caret) ifTrue: [caret] ifFalse: [selected first]]!
 
 queryCommand: aCommandQuery
 	"Update aCommandQuery to indicates how a command would be processed.
@@ -1931,19 +1886,18 @@ removeColumn: aListViewColumn
 
 	self removeColumnAtIndex: (self allColumns indexOf: aListViewColumn)!
 
-removeColumnAtIndex: columnIndex 
+removeColumnAtIndex: columnIndex
 	"Remove the Column at columnIndex with all its subitems."
 
-	lastClickedColIndex isNil 
+	lastClickedColIndex isNil
 		ifFalse: 
-			[columnIndex = lastClickedColIndex 
+			[columnIndex = lastClickedColIndex
 				ifTrue: [lastClickedColIndex := nil]
-				ifFalse: 
-					[columnIndex < lastClickedColIndex 
-						ifTrue: [lastClickedColIndex := lastClickedColIndex - 1]]].
+				ifFalse: [columnIndex < lastClickedColIndex ifTrue: [lastClickedColIndex := lastClickedColIndex - 1]]].
 	(columns removeAtIndex: columnIndex) parent: nil.
 	self basicRemoveColumnAtIndex: columnIndex.
 	self
+		autoResizeColumns;
 		invalidate;
 		update!
 
@@ -1970,12 +1924,6 @@ resolutionScaledBy: scale
 	self allColumns do: [:each | each resolutionScaledBy: scale].
 	iconSpacing ifNotNil: [self iconSpacing: (iconSpacing * scale) truncated]!
 
-revertSelection
-	"Private - Revert to the last recorded selection (useful if the user indicated that he didn't want
-	to change selection after all when prompted)."
-
-	self basicSelectionsByIndex: lastSelIndices!
-
 selectAll
 	| size |
 	size := self size.
@@ -1984,7 +1932,7 @@ selectAll
 selectedCount
 	"Private - Answer the total number of items selected in the receiver."
 
-	^self sendMessage: LVM_GETSELECTEDCOUNT!
+	^lastSelIndices size!
 
 selectIndex: anInteger set: aBoolean
 	"Private - Set/reset the selection state of the object at the specified one-based <integer>
@@ -1995,6 +1943,20 @@ selectIndex: anInteger set: aBoolean
 	anLvItem stateMask: SelectionStateMask.
 	aBoolean ifTrue: [anLvItem dwState: SelectionStateMask].
 	self lvmSetItem: anInteger - 1 state: anLvItem!
+
+selectIndices: aCollection set: aBoolean
+	| anLvItem |
+	anLvItem := LVITEMW newBuffer.
+	anLvItem stateMask: SelectionStateMask.
+	aBoolean ifTrue: [anLvItem dwState: SelectionStateMask].
+	self isMultiSelect
+		ifTrue: [aCollection do: [:each | self lvmSetItem: each - 1 state: anLvItem]]
+		ifFalse: [self lvmSetItem: aCollection first - 1 state: anLvItem]!
+
+selectionByIndex
+	"Answer the 1-based <integer> index of the selected item in the view, or zero if there is not exactly one selection."
+
+	^lastSelIndices size == 1 ifTrue: [lastSelIndices at: 1] ifFalse: [0]!
 
 selections: aCollection ifAbsent: aNiladicOrMonadicValuable
 	"Select the first occurrences of the specified collection of <Object>s in the receiver and
@@ -2009,8 +1971,13 @@ selections: aCollection ifAbsent: aNiladicOrMonadicValuable
 	self setSelectionsByIndex: indices.
 	^missing isEmpty ifTrue: [aCollection] ifFalse: [aNiladicOrMonadicValuable cull: missing]!
 
+selectionsByIndex
+	"Answer an <Array> of the <integer> the indices of the selected items 	in the receiver in ascending order. The array will be empty if there is no selection."
+
+	^lastSelIndices!
+
 selectionsByIndex: aCollection ifAbsent: exceptionHandler
-	"Select the objects identified by the <collection> of <integer> indices, indices, in the
+	"Select the objects identified by the <collection> of <integer> indices, aCollection, in the
 	receiver. If any of the indices are out of bounds, then evaluate the <monadicValuable>,
 	exceptionHandler, passing it a <collection> of the offending indices. For backwards
 	compatibility with the superclass implementation, exceptionHandler can also be a
@@ -2050,13 +2017,25 @@ setControlBackcolor: aColor
 setIconSpacing: aPointOrNil
 	self lvmSetIconSpacing: aPointOrNil ?? (-1 @ -1)!
 
-setSelectionsByIndex: indices 
+setItem: anInteger checked: aBoolean
+	"Set whether the item with the specified index is 'checked' or not. This will have unpredictable effects if the list is not in `hasCheckBoxes` mode."
+
+	| item |
+	item := LVITEMW new
+				iStateImage: aBoolean asParameter + 1;
+				yourself.
+	self lvmSetItem: anInteger - 1 state: item!
+
+setSelectionsByIndex: indices
+	| selections |
 	(indices noDifference: lastSelIndices) ifTrue: [^self].
 	self basicSelectionsByIndex: indices.
-	self ensureSelectionVisible.
-	"Note: We have to check again whether the selection has changed because of the single-select
-	case - onSelChanged does this."
-	self onSelChanged!
+	"Use the actual selections that resulted - we need to check these again against the last selections, as in the single selection case the actual selection may not have changed if multiple selections were requested and the first is still the same as the previous single selection."
+	selections := self getSelectionsByIndex.
+	selections = lastSelIndices
+		ifFalse: 
+			[self ensureItemsVisible: selections.
+			self onSelChanged: selections]!
 
 setSingleSelection: anInteger 
 	self selectIndex: anInteger set: anInteger ~~ 0!
@@ -2067,7 +2046,8 @@ setViewMode: aSymbol
 setWidthOfColumn: colIndexInteger to: widthInteger
 	"Set the width of the column identified by itemIndex to anInteger."
 
-	self lvmSetColumnWidth: colIndexInteger-1 to: widthInteger.
+	self lvmSetColumnWidth: colIndexInteger - 1 to: widthInteger.
+	self autoResizeColumns.
 	self invalidateLayout!
 
 showDropHighlight: item
@@ -2113,26 +2093,24 @@ state
 
 	| sequence order |
 	sequence := super state.
-	self isReportMode 
+	self isReportMode
 		ifTrue: 
 			["Ensure the actual column widths are cached"
-			self allColumns 
+			self allColumns
 				keysAndValuesDo: [:eachKey :eachValue | eachValue basicWidth: (self lvmGetColumnWidth: eachKey - 1)]].
 	"Record the column order if anything other than ascending"
-	(order := self columnOrder) = (1 to: self columnCount) 
+	(order := self columnOrder) = (1 to: self columnCount)
 		ifFalse: 
-			[sequence add: (MessageSend 
+			[sequence add: (MessageSend
 						receiver: self
 						selector: #columnOrder:
 						argument: order)].
-	self backImage notNil 
-		ifTrue: [sequence add: (MessageSend receiver: self selector: #backImageChanged)].
 	^sequence!
 
 stateImageFromRow: anObject
-	"Private - Answer the index of the state image for the row <Object> argument, or NoImageIndex if none."
+	"Private - Answer the index of the state image for the row <Object> argument, or nil if none."
 
-	^NoImageIndex!
+	^nil!
 
 subItemRectRow: rowInteger column: colInteger
 	"Answer a <Rectangle> representing the bounds of the sub-item at the specified row and column."
@@ -2246,7 +2224,11 @@ updateItem: anObject atIndex: anInteger
 				afterIndex: anInteger - 1]!
 
 updateSelectionCache
-	lastSelIndices notEmpty ifTrue: [lastSelIndices := self selectionsByIndex]!
+	"Private - The receiver's model is being modified, so we may need to account for selection changes caused by that.
+	Of course this can't add a selection if there is none."
+
+	lastSelIndices notEmpty ifTrue: [lastSelIndices := self getSelectionsByIndex].
+	approvedSelIndices := nil!
 
 viewMode
 	"Answer the view mode of the receiver.
@@ -2276,7 +2258,7 @@ viewModeChanged
 		maskedBy: LVS_TYPEMASK
 		recreateIfChanged: false.
 	self autoResizeColumns.
-	self isVirtual ifTrue: [self invalidate] ifFalse: [self updateAll].
+	self updateAll.
 	self trigger: #viewModeChanged!
 
 viewModeSelect
@@ -2293,6 +2275,7 @@ wantCustomDrawItemNotifications: pNMHDR
 !ListView categoriesFor: #addColumn:!adding!columns!public! !
 !ListView categoriesFor: #addColumn:atIndex:!adding!columns!public! !
 !ListView categoriesFor: #addOrUpdate:nonVirtualItems:afterIndex:!private!updating! !
+!ListView categoriesFor: #adjustForStaticEdgeBug:!helpers!private! !
 !ListView categoriesFor: #allColumns!columns!public! !
 !ListView categoriesFor: #anchorIndex!public!selection! !
 !ListView categoriesFor: #anchorIndex:!public!selection! !
@@ -2339,8 +2322,8 @@ wantCustomDrawItemNotifications: pNMHDR
 !ListView categoriesFor: #defaultListViewExStyle!accessing-styles!constants!private! !
 !ListView categoriesFor: #defaultThumbnailExtent!constants!private! !
 !ListView categoriesFor: #defaultWindowStyle!constants!private! !
-!ListView categoriesFor: #dispatchRegistered:wParam:lParam:!operations!private! !
 !ListView categoriesFor: #editLabelStyle!constants!private! !
+!ListView categoriesFor: #ensureItemsVisible:!helpers!private! !
 !ListView categoriesFor: #ensureSelectionVisible!public!selection! !
 !ListView categoriesFor: #ensureVisible:!operations!public! !
 !ListView categoriesFor: #errorInCommonControlCall:!exceptions!private! !
@@ -2348,13 +2331,15 @@ wantCustomDrawItemNotifications: pNMHDR
 !ListView categoriesFor: #findItem:startingAt:wrap:!private!searching! !
 !ListView categoriesFor: #forecolor:!accessing!public! !
 !ListView categoriesFor: #forgetLastClickedColumn!helpers!private! !
+!ListView categoriesFor: #getItemChecked:!accessing!public! !
 !ListView categoriesFor: #getItemText:!accessing!private! !
-!ListView categoriesFor: #getMultipleSelections!private!selection! !
+!ListView categoriesFor: #getSelectedCount!private!selection! !
+!ListView categoriesFor: #getSelectionsByIndex!private!selection! !
 !ListView categoriesFor: #getSingleSelection!private!selection! !
 !ListView categoriesFor: #getThumbnailOf:!helpers!private! !
 !ListView categoriesFor: #hasBorderSelect!accessing-styles!public! !
 !ListView categoriesFor: #hasBorderSelect:!accessing-styles!public! !
-!ListView categoriesFor: #hasButtons!accessing-styles!do copy!public!testing! !
+!ListView categoriesFor: #hasButtons!accessing-styles!public!testing! !
 !ListView categoriesFor: #hasCheckBoxes!accessing-styles!public! !
 !ListView categoriesFor: #hasCheckBoxes:!accessing-styles!public! !
 !ListView categoriesFor: #hasColumnHeaders!accessing!public! !
@@ -2381,7 +2366,7 @@ wantCustomDrawItemNotifications: pNMHDR
 !ListView categoriesFor: #hideDropHighlight!drag & drop!private! !
 !ListView categoriesFor: #iconSpacing!accessing!public! !
 !ListView categoriesFor: #iconSpacing:!accessing!public! !
-!ListView categoriesFor: #imageFromRow:!adapters!private!wine fix! !
+!ListView categoriesFor: #imageFromRow:!adapters!private! !
 !ListView categoriesFor: #indentFromRow:!adapters!private! !
 !ListView categoriesFor: #infoTipFromRow:withPrefix:!adapters!private! !
 !ListView categoriesFor: #initialize!initializing!private! !
@@ -2404,10 +2389,10 @@ wantCustomDrawItemNotifications: pNMHDR
 !ListView categoriesFor: #largeIconExtent:!constants!public! !
 !ListView categoriesFor: #largeIconMode!commands!public! !
 !ListView categoriesFor: #lastSelIndices!accessing!private! !
-!ListView categoriesFor: #lastSelIndices:!accessing!private! !
 !ListView categoriesFor: #listMode!commands!public! !
 !ListView categoriesFor: #listViewStyleAllMask:!accessing-styles!private! !
 !ListView categoriesFor: #listViewStyleMask:set:!accessing-styles!private! !
+!ListView categoriesFor: #lvFlags!accessing!private! !
 !ListView categoriesFor: #lvmApproximateViewRect:cx:cy:!geometry!private! !
 !ListView categoriesFor: #lvmArrange:!operations!private! !
 !ListView categoriesFor: #lvmCreateDragImage:position:!operations!private! !
@@ -2422,6 +2407,7 @@ wantCustomDrawItemNotifications: pNMHDR
 !ListView categoriesFor: #lvmGetColumnWidth:!accessing!private! !
 !ListView categoriesFor: #lvmGetExtendedListViewStyle!accessing!private! !
 !ListView categoriesFor: #lvmGetHeader!geometry!private! !
+!ListView categoriesFor: #lvmGetImageList:!image management!private! !
 !ListView categoriesFor: #lvmGetItem:!accessing!private! !
 !ListView categoriesFor: #lvmGetItemPosition:!geometry!private! !
 !ListView categoriesFor: #lvmGetItemRect:bounding:!geometry!private! !
@@ -2430,7 +2416,7 @@ wantCustomDrawItemNotifications: pNMHDR
 !ListView categoriesFor: #lvmGetNextItem:flags:!accessing!private! !
 !ListView categoriesFor: #lvmGetOrigin!accessing!private! !
 !ListView categoriesFor: #lvmGetStringWidth:!accessing!private! !
-!ListView categoriesFor: #lvmGetSubItemRect:subitem:bounding:!private! !
+!ListView categoriesFor: #lvmGetSubItemRect:subitem:bounding:!geometry!private! !
 !ListView categoriesFor: #lvmGetView!accessing-styles!private! !
 !ListView categoriesFor: #lvmGetViewRect!geometry!private! !
 !ListView categoriesFor: #lvmInsertAt:column:!adding!private! !
@@ -2470,15 +2456,14 @@ wantCustomDrawItemNotifications: pNMHDR
 !ListView categoriesFor: #lvnMarqueeBegin:!event handling-win32!private! !
 !ListView categoriesFor: #lvnODStateChanged:!event handling-win32!private! !
 !ListView categoriesFor: #maybeSelChanging:!event handling!private! !
-!ListView categoriesFor: #moreParams!accessing!private! !
-!ListView categoriesFor: #moreParamsAt:!accessing!private! !
-!ListView categoriesFor: #moreParamsAt:put:!accessing!private! !
-!ListView categoriesFor: #newSelectionsFromEvent:!event handling!private! !
+!ListView categoriesFor: #nmBeginDrag:!event handling-win32!private! !
+!ListView categoriesFor: #nmBeginRDrag:!event handling-win32!private! !
 !ListView categoriesFor: #nmClick:!event handling-win32!private! !
 !ListView categoriesFor: #nmNotify:!event handling-win32!private! !
 !ListView categoriesFor: #nmRClick:!event handling-win32!private! !
+!ListView categoriesFor: #nmSelChanged:!event handling-win32!private! !
 !ListView categoriesFor: #notificationClass!constants!private! !
-!ListView categoriesFor: #onButtonPressed:!event handling!private! !
+!ListView categoriesFor: #onButtonPressed:!private! !
 !ListView categoriesFor: #onDisplayDetailsRequired:!event handling!private! !
 !ListView categoriesFor: #onDropDown:!event handling!private! !
 !ListView categoriesFor: #onEraseRequired:!event handling!public! !
@@ -2492,9 +2477,9 @@ wantCustomDrawItemNotifications: pNMHDR
 !ListView categoriesFor: #onSelChanged:!event handling!private! !
 !ListView categoriesFor: #onSelChanging:cause:!event handling!private! !
 !ListView categoriesFor: #onSelRemoved!public!selection! !
+!ListView categoriesFor: #onStateRestored!binary filing!private! !
 !ListView categoriesFor: #onViewCreated!event handling!public! !
 !ListView categoriesFor: #primaryColumn!columns!private! !
-!ListView categoriesFor: #primarySelectionIndex!public!selection! !
 !ListView categoriesFor: #queryCommand:!commands!public! !
 !ListView categoriesFor: #refreshContents!public!updating! !
 !ListView categoriesFor: #refreshNonVirtual!private!updating! !
@@ -2503,15 +2488,18 @@ wantCustomDrawItemNotifications: pNMHDR
 !ListView categoriesFor: #reportMode!commands!public! !
 !ListView categoriesFor: #resetSelection!public!selection! !
 !ListView categoriesFor: #resolutionScaledBy:!geometry!private! !
-!ListView categoriesFor: #revertSelection!helpers!private!selection! !
 !ListView categoriesFor: #selectAll!public!selection! !
 !ListView categoriesFor: #selectedCount!private!selection! !
-!ListView categoriesFor: #selectIndex:set:!private!selection!wine fix! !
+!ListView categoriesFor: #selectIndex:set:!private!selection! !
+!ListView categoriesFor: #selectIndices:set:!private!selection! !
+!ListView categoriesFor: #selectionByIndex!public!selection! !
 !ListView categoriesFor: #selections:ifAbsent:!public!selection! !
+!ListView categoriesFor: #selectionsByIndex!public!selection! !
 !ListView categoriesFor: #selectionsByIndex:ifAbsent:!public!selection! !
 !ListView categoriesFor: #setColumnIcon:atIndex:!helpers!private! !
 !ListView categoriesFor: #setControlBackcolor:!helpers!private! !
 !ListView categoriesFor: #setIconSpacing:!helpers!private! !
+!ListView categoriesFor: #setItem:checked:!accessing!public! !
 !ListView categoriesFor: #setSelectionsByIndex:!private!selection! !
 !ListView categoriesFor: #setSingleSelection:!private!selection! !
 !ListView categoriesFor: #setViewMode:!accessing!private! !
@@ -2522,7 +2510,7 @@ wantCustomDrawItemNotifications: pNMHDR
 !ListView categoriesFor: #smallIconMode!commands!public! !
 !ListView categoriesFor: #sortOnColumn:!columns!public!sorting! !
 !ListView categoriesFor: #state!accessing!private! !
-!ListView categoriesFor: #stateImageFromRow:!private! !
+!ListView categoriesFor: #stateImageFromRow:!helpers!private! !
 !ListView categoriesFor: #subItemRectRow:column:!geometry!public! !
 !ListView categoriesFor: #text:!accessing!public! !
 !ListView categoriesFor: #textFromRow:!adapters!private! !
@@ -2581,12 +2569,43 @@ onStartup
 	"The system is starting: Register a message to be used for cancelling a selection after
 	the fact."
 
-	RevertSelMessage := self registerMessage: 'RevertSelection'.
 	NTLibrary isWine
 		ifTrue: 
 			["Having autoSelectPackages option turned on in System  Browser gives unpleasant scrolling effect when many multiple packages are selected. This also happens in Package Browser. Problem under Wine traced to LVIS_FOCUSED option in ListView>>selectIndex:. Not sure what overall effect it will have turning this off."
 			SelectionStateMask := LVIS_SELECTED]
 		ifFalse: [SelectionStateMask := ##(LVIS_SELECTED | LVIS_FOCUSED)]!
+
+stbConvert: instVarArray fromVersion: verInteger
+	| instVars |
+	instVars := instVarArray.
+	verInteger <= 13 ifTrue: [instVars := super stbConvert: instVars fromVersion: verInteger].
+	verInteger < 17
+		ifTrue: 
+			[| size lvFlags |
+			size := instVars size + 15.
+			instVars := (Array new: size)
+						replaceFrom: 1
+							to: 30
+							with: instVars
+							startingAt: 1;
+						replaceFrom: 46
+							to: size
+							with: instVars
+							startingAt: 31;
+						yourself.
+			lvFlags := 0.
+			(instVars at: 30)
+				ifNotNil: 
+					[:moreParams |
+					| backImageOffset |
+					(moreParams lookup: 2)
+						ifNotNil: [:isTiled | lvFlags := lvFlags mask: BackImageIsTiledMask set: isTiled].
+					backImageOffset := moreParams lookup: 3.
+					instVars at: 31 put: (moreParams lookup: 1).
+					instVars at: 32 put: (backImageOffset = Point zero ifFalse: [backImageOffset]).
+					instVars at: 33 put: (moreParams lookup: 4)].
+			instVars at: 30 put: lvFlags].
+	^instVars!
 
 stbConvertFromVersion10: anArray 
 	"Private - Perform an STB conversion from a version 10 <ListView> to version 11,
@@ -2629,6 +2648,14 @@ stbConvertFromVersion5: anArray
 
 	^(super stbConvertFromVersion5: anArray) copyWith: 0!
 
+stbVersion
+	"Versions:
+		1-13: See View
+		14-16: See EditableListView
+		17: Consolidates 4 vars using moreParams into inst vars and adds 12 spares"
+
+	^17!
+
 themePartName
 
 	^#ListView!
@@ -2644,10 +2671,12 @@ winClassName
 !ListView class categoriesFor: #icon!constants!public! !
 !ListView class categoriesFor: #initialize!development!initializing!private! !
 !ListView class categoriesFor: #onStartup!events-session!public! !
+!ListView class categoriesFor: #stbConvert:fromVersion:!binary filing!public! !
 !ListView class categoriesFor: #stbConvertFromVersion10:!binary filing!private! !
 !ListView class categoriesFor: #stbConvertFromVersion11:!binary filing!private! !
 !ListView class categoriesFor: #stbConvertFromVersion2:!binary filing!private! !
 !ListView class categoriesFor: #stbConvertFromVersion5:!binary filing!private! !
+!ListView class categoriesFor: #stbVersion!binary filing!public! !
 !ListView class categoriesFor: #themePartName!constants!public! !
 !ListView class categoriesFor: #viewModes!accessing!public! !
 !ListView class categoriesFor: #winClassName!constants!private! !

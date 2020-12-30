@@ -31,7 +31,16 @@ union InstanceSpecification
 		uint16_t m_pointers : 1;	// Pointers or bytes?
 		uint16_t m_nullTerminated : 1;	// Null terminated byte object?
 
-		uint16_t m_extraSpec;				// High word for class specific purposes (e.g. structure byte size)
+		union
+		{
+			uint16_t m_extraSpec : 16;				// High word for class specific purposes (e.g. structure byte size)
+			struct
+			{
+				ST::StringEncoding m_encoding : 2;
+				uint8_t : 6;
+				uint8_t : 8;
+			};
+		};
 	};
 	SmallUinteger m_value;
 
@@ -78,10 +87,11 @@ namespace ST
 		uint16_t extraSpec() const { return m_instanceSpec.m_extraSpec; }
 		BOOL isIndirect() const { return m_instanceSpec.m_indirect; }
 
-		enum {
-			SuperclassIndex = ObjectFixedSize, MethodDictionaryIndex, InstanceSpecificationIndex,
-			SubClassesIndex, FixedSize
-		};
+		static constexpr size_t SuperclassIndex = Object::FixedSize;
+		static constexpr size_t MethodDictionaryIndex = SuperclassIndex + 1;
+		static constexpr size_t InstanceSpecificationIndex = MethodDictionaryIndex + 1;
+		static constexpr size_t SubClassesIndex = InstanceSpecificationIndex + 1;
+		static constexpr size_t FixedSize = SubClassesIndex + 1;
 	};
 }
 

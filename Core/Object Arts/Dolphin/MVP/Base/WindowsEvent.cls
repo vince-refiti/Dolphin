@@ -30,6 +30,9 @@ isHandled
 lParam
 	^lParam!
 
+lParam: anInteger 
+	lParam := anInteger!
+
 lParamX
 	"Answer the X-value signed integer packed into the low half of the receiver's lParam field.
 	Note that this could be a 16 or 32-bit value depending on whether the host OS is 32 or
@@ -75,13 +78,21 @@ printOn: aStream
 	aStream
 		print: self window;
 		space.
-	msg isNil ifTrue: [self message printOn: aStream base: 16 showRadix: true] ifFalse: [aStream nextPutAll: msg].
-	aStream
-		space;
-		print: self wParam;
-		space.
+	msg isNil
+		ifTrue: 
+			[self message
+				printOn: aStream
+				base: 16
+				showRadix: true]
+		ifFalse: [aStream nextPutAll: msg].
+	aStream space.
+	self printWParamOn: aStream.
+	aStream space.
 	self printLParamOn: aStream.
 	aStream nextPut: $)!
+
+printWParamOn: aStream
+	aStream print: self wParam!
 
 window: aView message: msgInteger wParam: wInteger lParam: lInteger
 	"Private - Initialize the receiver's instance variables from the parameters."
@@ -96,13 +107,15 @@ wParam
 !WindowsEvent categoriesFor: #defaultWindowProcessing!event handling!public! !
 !WindowsEvent categoriesFor: #isHandled!public!testing! !
 !WindowsEvent categoriesFor: #lParam!accessing!public! !
+!WindowsEvent categoriesFor: #lParam:!accessing!public! !
 !WindowsEvent categoriesFor: #lParamX!accessing!public! !
 !WindowsEvent categoriesFor: #lParamY!accessing!public! !
 !WindowsEvent categoriesFor: #lResult!accessing!public! !
 !WindowsEvent categoriesFor: #lResult:!accessing!not an aspect!public! !
 !WindowsEvent categoriesFor: #message!accessing!private! !
-!WindowsEvent categoriesFor: #printLParamOn:!printing!private! !
+!WindowsEvent categoriesFor: #printLParamOn:!development!printing!private! !
 !WindowsEvent categoriesFor: #printOn:!development!printing!public! !
+!WindowsEvent categoriesFor: #printWParamOn:!development!printing!private! !
 !WindowsEvent categoriesFor: #window:message:wParam:lParam:!initializing!private! !
 !WindowsEvent categoriesFor: #wParam!accessing!public! !
 

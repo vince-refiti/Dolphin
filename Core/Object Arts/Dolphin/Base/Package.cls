@@ -1,8 +1,8 @@
 ﻿"Filed out from Dolphin Smalltalk 7"!
 
 Object subclass: #Package
-	instanceVariableNames: 'name packagePathname comment classNames methodNames globalNames prerequisiteNames events scripts doNotReuse imageStripperBytes aboutBlock packageVersion manualPrerequisites timestamp untracedGlobals changeIndex properties'
-	classVariableNames: '_Uncommitted BinaryPacLoader ChangedIcon CheckTimestamps ClashSignal SourcePackageIcon UnsaveableSignal'
+	instanceVariableNames: 'name packagePathname comment classNames methodNames globalNames prerequisiteNames events scripts doNotReuse imageStripperBytes aboutBlock packageVersion manualPrerequisites timestamp untracedGlobals changeIndex properties preDeclareClassesOnLoad'
+	classVariableNames: '_Uncommitted BinaryPacLoader ChangedIcon CheckTimestamps ClashSignal PreDeclareClassesOnLoad SourcePackageIcon UnsaveableSignal'
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
 Package guid: (GUID fromString: '{87b4c4a6-026e-11d3-9fd7-00a0cc3e4a32}')!
@@ -246,7 +246,7 @@ behaviorFromName: aString ifAbsent: exceptionHandler
 	^index == 0
 		ifTrue: [self classFromName: aString ifAbsent: exceptionHandler]
 		ifFalse: 
-			[(self classFromName: (aString first: index - 1) ifAbsent: [])
+			[(self classFromName: (aString copyFrom: 1 to: index - 1) ifAbsent: [])
 				ifNil: [exceptionHandler value]
 				ifNotNil: [:class | class class]]!
 
@@ -617,7 +617,7 @@ includesClass: aClass
 	"Answer whether the receiver owns aClass. aClass's metaclass is
 	automatically owned as well."
 
-	^(classNames includes: aClass instanceClass name) and: [(self isImportedClass: aClass) not]!
+	^(classNames includes: aClass instanceClass name) and: [(ClassLocator isImportedClass: aClass) not]!
 
 includesGlobalNamed: globalName
 	"Answer whether the receiver owns the global named globalName."
@@ -796,7 +796,7 @@ loadPAX
 
 	| filename filer stream |
 	filename := self packageFileName.
-	Notification 
+	Notification
 		signal: ('Loading source package <1p> from: <2s>' expandMacrosWith: self name with: filename).
 	stream := FileStream read: filename.
 	timestamp := stream file lastWriteTime asInteger.
@@ -805,16 +805,13 @@ loadPAX
 	[filer nextChunk.	"Skip the first chunk since it represents the receiver."
 	self fileInScript: #preinstall.
 
-	"Define any globals that might be referenced from source code, but don't load them as yet as they
-		 may be instances of one of the classes in the package."
+	"Define any globals that might be referenced from source code, but don't load them as yet as they may be instances of one of the classes in the package."
 	self declareGlobals.
-
-	"Forward reference any classes just in case they are required by the globals that are just about to be loaded"
-	self declareClasses.
-
+	"Optionally declare all classes in the package for the case where classes are referenced by source globals or other class definitions (other than the class hierarchy relationship)"
+	self preDeclareClassesOnLoad ifTrue: [self declareClasses].
 	"Load source globals"
-	self globalNames - (self propertyAt: #binaryGlobalNames ifAbsent: [#()]) 
-		- (self propertyAt: #globalAliases ifAbsent: [#()]) 
+	self globalNames - (self propertyAt: #binaryGlobalNames ifAbsent: [#()])
+		- (self propertyAt: #globalAliases ifAbsent: [#()])
 			do: [:each | self sourceManager fileIn: (self fileNameForSourceGlobal: each)].
 
 	"Load class definitions, aliases, and loose methods from the remainder of the PAX file"
@@ -822,11 +819,11 @@ loadPAX
 	self fileInClasses.
 	self loadBinaryGlobals.
 	self initializeGlobals.
-	self paxVersion < 1 
+	self paxVersion < 1
 		ifTrue: 
 			["Initialize old style (pre D6) binary resources"
 			self initializeOldSourcePackage].
-	self fileInScript: #postinstall] 
+	self fileInScript: #postinstall]
 			ensure: [filer close]!
 
 looseResourceIdentifiers
@@ -906,7 +903,7 @@ methodNames
 	receiver. Note that this only includes loose methods that extend classes in other 
 	packages, not the name of methods defined in classes owned by this package."
 
-	^methodNames ifNil: [methodNames := PluggableSet searchPolicy: AssociationSearchPolicy current]!
+	^methodNames ifNil: [methodNames := PluggableSet searchPolicy: SearchPolicy association]!
 
 methods
 	"Answer an <IdentitySet> of the <CompiledMethod>s owned by the receiver."
@@ -964,22 +961,20 @@ okToSaveOrDeploy
 	"Private - Prior to saving or deploying the receiver, check that all is consistent and answer whether the
 	receiver should be saved. Raise Errors that describe any problems."
 
-	self isSystemPackage ifTrue: [^false].
-	self hasCyclicPrerequisites 
-		ifTrue: 
-			[self class unsaveableSignal 
+	self isSystemPackage ifTrue: [^Smalltalk developmentSystem isOAD].
+	self hasCyclicPrerequisites ifTrue: 
+			[self class unsaveableSignal
 				signal: ('The package <1p> has cyclic prerequisites.' expandMacrosWith: self name).
 			^false].
 
 	"N.B. This must be done after the above, as it will go infinitely recursive if there are cycles."
-	self hasUncommittedPrerequisites 
-		ifTrue: 
-			[self class unsaveableSignal 
-				signal: ('The package <1p> has prerequisites which are not currently assigned to any other package, or it is dependent on other packages which in turn have uncommitted prerequisites.' 
+	self hasUncommittedPrerequisites ifTrue: 
+			[self class unsaveableSignal
+				signal: ('The package <1p> has prerequisites which are not currently assigned to any other package, or it is dependent on other packages which in turn have uncommitted prerequisites.'
 						expandMacrosWith: self name).
 			^false].
 	self validate.
-	^true!
+	^true.!
 
 okToUninstall
 	"Private - Validate that the receiver can be uninstalled. 
@@ -1132,6 +1127,17 @@ paxVersion: anInteger
 	was saved. This may be used for loading old format source packages in future."
 
 	self propertyAt: #paxVersion put: anInteger!
+
+preDeclareClassesOnLoad
+	"Answer whether Package loading from a .pax should, by default, declare classes before loading any code. See the class side implementation of this message for further details."
+
+	^preDeclareClassesOnLoad ifNil: [self class preDeclareClassesOnLoad]!
+
+preDeclareClassesOnLoad: aBoolean
+	preDeclareClassesOnLoad == aBoolean
+		ifFalse: 
+			[preDeclareClassesOnLoad := aBoolean.
+			self isChanged: true]!
 
 prerequisiteNames
 	"Private - Answer the <readableString> names of the receiver's prerequisite packages, i.e.
@@ -1692,7 +1698,7 @@ variableSortBlock
 	"Private - Answer a <dyadicValuable> sort block suitable for sorting global variable <Association>s
 	into alphabetic order."
 
-	^[:a :b | (a key trueCompare: b key) <= 0]!
+	^[:a :b | (a key <==> b key) <= 0]!
 
 versionIfRequired
 	Package manager versionPackageIfRequired: self!
@@ -1848,6 +1854,8 @@ If you experience subsequent problems please contact the package supplier for an
 !Package categoriesFor: #path!accessing!public! !
 !Package categoriesFor: #paxVersion!accessing!private! !
 !Package categoriesFor: #paxVersion:!accessing!private! !
+!Package categoriesFor: #preDeclareClassesOnLoad!accessing!public! !
+!Package categoriesFor: #preDeclareClassesOnLoad:!accessing!public! !
 !Package categoriesFor: #prerequisiteNames!accessing!private! !
 !Package categoriesFor: #prerequisites!enumerating!public! !
 !Package categoriesFor: #printOn:!printing!public! !
@@ -1997,9 +2005,7 @@ initialize
 	BinaryPacLoader := nil!
 
 manager
-	"Answer the object responsible for managing the collection of installed packages.
-	N.B. This should be the only reference to PackageManager in the entire system,
-	as the class may be removed from a future release."
+	"Answer the object responsible for managing the collection of installed packages."
 
 	^PackageManager current!
 
@@ -2039,6 +2045,14 @@ paxVersion
 	1 - D6.0 format with implicit literal (i.e. not embedded binary) resources"
 
 	^1!
+
+preDeclareClassesOnLoad
+	"Answer whether Package loading from a .pax should, by default, declare classes before loading any code. This is generally not necessary except in circumstances where one or more of the source globals in the package as dependencies on classes in the package, or where classes in the package are being used in the role of pool dictionaries by other classes in the package. However, the historic behaviour was to declare classes, so for the time being this is still on by default. The setting can either be changed globally (i.e. `Package declareClassesOnLoad: false`) or for individual packages using the `preDeclareClassesOnLoad` property on the instance side. If the property is set, then it will be persisted to the package file and respected by future loads. In the next major release of Dolphin, this property will default to 'false'. The reason for this is that pre-declaration is relatively expensive (causing a class mutation when the actual class declaration is subsequently loaded), and so worth avoiding when not required."
+
+	^PreDeclareClassesOnLoad ?? true!
+
+preDeclareClassesOnLoad: aBoolean
+	PreDeclareClassesOnLoad := aBoolean!
 
 readFrom: pacStream
 	"Private - Answer a new instance of the receiver created from the .PAX (source 
@@ -2269,6 +2283,8 @@ unsaveableSignal
 !Package class categoriesFor: #packageExtension!constants!private! !
 !Package class categoriesFor: #packageFileVersion!constants!public! !
 !Package class categoriesFor: #paxVersion!constants!private! !
+!Package class categoriesFor: #preDeclareClassesOnLoad!accessing!public! !
+!Package class categoriesFor: #preDeclareClassesOnLoad:!accessing!public! !
 !Package class categoriesFor: #readFrom:!instance creation!private! !
 !Package class categoriesFor: #sourceGlobalExtension!constants!private! !
 !Package class categoriesFor: #sourcePackageExtension!constants!private! !

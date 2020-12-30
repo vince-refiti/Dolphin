@@ -28,6 +28,7 @@ using namespace ST;
 
 #if defined(_DEBUG)
 	#define MEMSTATS
+	#define TRACKFREEOTEs
 #endif
 
 // We don't want inline expansion of recursive functions thankyou
@@ -48,6 +49,13 @@ class obinstream;
 
 #define pointerFromIndex(index)	(m_pOT+static_cast<ptrdiff_t>(index))
 
+enum class ByteElementSize : size_t
+{
+	Bytes = 0,
+	Words = 1,
+	Quads = 2
+};
+
 ///////////////////////////////////////////////////////////////////////////////
 // Class of Object Memory Managers
 
@@ -63,34 +71,28 @@ public:
 
 	// Object Pointer access
 	static Oop fetchPointerOfObject(size_t fieldIndex, PointersOTE* ote);
-	static Oop storePointerOfObjectWithValue(size_t fieldIndex, PointersOTE* ote, Oop valuePointer);
-	static Oop storePointerWithValue(Oop& oopSlot, Oop oopValue);
-	static OTE* storePointerWithValue(OTE*& oteSlot, OTE* oteValue);
-	static Oop storePointerWithValue(Oop& oopSlot, OTE* oteValue);
-	static void nilOutPointer(Oop& objectPointer);
+	static void storePointerWithValue(Oop& oopSlot, Oop oopValue);
+	static void storePointerWithValue(OTE*& oteSlot, OTE* oteValue);
+	static void storePointerWithValue(Oop& oopSlot, OTE* oteValue);
 	static void nilOutPointer(OTE*& ote);
 
 	// Use these versions to store values which are not themselves ref. counted
-	static Oop storePointerWithUnrefCntdValue(Oop&, Oop);
-	static void __fastcall storePointerOfObjectWithUnrefCntdValue(size_t fieldIndex, PointersOTE* ote, Oop value);
-
-	// Word Access
-	static uintptr_t fetchWordOfObject(size_t fieldIndex, Oop objectPointer);
-	static uintptr_t storeWordOfObjectWithValue(size_t fieldIndex, Oop objectPointer, uintptr_t valueWord);
+	static void storePointerWithUnrefCntdValue(Oop&, Oop);
 
 	// Formerly Private reference count management
 	static void  __fastcall countUp(Oop objectPointer);
 	static void __fastcall countDown(Oop rootObjectPointer);
-	static ArrayOTE* __stdcall referencesTo(Oop referencedObjectPointer, bool includeWeakRefs);
-	static ArrayOTE* __fastcall instancesOf(BehaviorOTE* classPointer);
-	static ArrayOTE* __fastcall subinstancesOf(BehaviorOTE* classPointer);
+	template<typename Partitioner, typename Predicate> static ArrayOTE* selectObjects(const Partitioner&&, const Predicate& pred);
+	static ArrayOTE* __stdcall instancesOf(const BehaviorOTE* classPointer);
+	static ArrayOTE* __stdcall subinstancesOf(const BehaviorOTE* classPointer);
+	static ArrayOTE* __stdcall referencesTo(const Oop referencedObjectPointer, bool includeWeakRefs);
 	static ArrayOTE* __fastcall instanceCounts(ArrayOTE* oteClasses);
 	static void deallocateByteObject(OTE*);
 
 	// Class pointer access
 	static BehaviorOTE* fetchClassOf(Oop objectPointer);
 
-	static size_t GetBytesElementSize(BytesOTE* ote);
+	static ByteElementSize GetBytesElementSize(BytesOTE* ote);
 
 	// Use CRT Small block heap OR pool if size <= this threshold
 	static constexpr size_t MaxSmallObjectSize = 0x3f8;
@@ -145,6 +147,35 @@ public:
 		return pointerFromIndex(index);
 	}
 
+	#ifdef _DEBUG
+	
+	#define FREEFLAG 0x80000000
+
+	static OTE* NextFree(const OTE* ote)
+	{
+		assert(ote->isFree());
+		assert((reinterpret_cast<uintptr_t>(ote->m_location) & FREEFLAG) == FREEFLAG);
+		OTE* next = reinterpret_cast<OTE*>(reinterpret_cast<uintptr_t>(ote->m_location) & ~FREEFLAG);
+		assert(next >= m_pOT && next <= (m_pOT + m_nOTSize));
+		return next;
+	}
+
+	static const POBJECT MakeNextFree(const OTE* pFree)
+	{
+		return reinterpret_cast<POBJECT>(reinterpret_cast<uintptr_t>(pFree) | FREEFLAG);
+	}
+	#else
+	static OTE* NextFree(const OTE* ote)
+	{
+		return reinterpret_cast<OTE*>(reinterpret_cast<uintptr_t>(ote->m_location));
+	}
+
+	static const POBJECT MakeNextFree(const OTE* pFree)
+	{
+		return reinterpret_cast<POBJECT>(reinterpret_cast<uintptr_t>(pFree));
+	}
+	#endif
+
 	// Answer whether the argument is a permanent object
 	static bool isPermanent(OTE* ote);
 
@@ -158,7 +189,7 @@ public:
 	static bool isAContext(const OTE* ote);
 
 	// This is a very simple routine which can work entirely in registers (hence fastcall)
-	static bool __fastcall inheritsFrom(const BehaviorOTE* behaviorPointer, const BehaviorOTE* classPointer);
+	static bool __stdcall inheritsFrom(const BehaviorOTE* behaviorPointer, const BehaviorOTE* classPointer);
 	static bool isKindOf(Oop objectPointer, const BehaviorOTE* classPointer);
 
 	// Answer whether the object with Oop objectPointer is an instance or subinstance
@@ -204,7 +235,7 @@ public:
 	// Does an object have the current GC mark?
 	template <class T> static bool hasCurrentMark(TOTE<T>* const ote)
 	{
-			return ote->m_flags.m_mark == m_spaceOTEBits[OTEFlags::NormalSpace].m_mark;
+			return ote->m_flags.m_mark == m_spaceOTEBits[static_cast<space_t>(Spaces::Normal)].m_mark;
 	}
 
 #ifdef MEMSTATS
@@ -225,24 +256,25 @@ public:
 	static constexpr size_t OTDefaultMax = 24 * 1024 * 1024;
 	static constexpr size_t OTMaxLimit = 64 * 1024 * 1024;
 
-	enum { registryIndex, FirstBuiltInIdx };
+	static constexpr size_t registryIndex = 0;
+	static constexpr size_t FirstBuiltInIdx = registryIndex + 1;
 
 	/***************************************************************************************
 	* N.B. If inserting new fixed Oops, must also update the FIRSTCHAROFFSET in ISTASM.INC
 	* or will get garbage DNU very early in boot
 	/***************************************************************************************/
-	enum {
-		nilOOPIndex = FirstBuiltInIdx,
-		trueOOPIndex,
-		falseOOPIndex,
-		emptyStringOOPIndex,
-		delimStringOOPIndex,
-		emptyArrayOOPIndex,
-		FirstCharacterIdx
-	};
+	static constexpr size_t nilOOPIndex = FirstBuiltInIdx;
+	static constexpr size_t trueOOPIndex = nilOOPIndex + 1;
+	static constexpr size_t falseOOPIndex = trueOOPIndex + 1;
+	static constexpr size_t emptyStringOOPIndex = falseOOPIndex + 1;
+	static constexpr size_t delimStringOOPIndex = emptyStringOOPIndex + 1;
+	static constexpr size_t emptyArrayOOPIndex = delimStringOOPIndex + 1;
+	static constexpr size_t FirstCharacterIdx = emptyArrayOOPIndex + 1;
 	static constexpr size_t NumCharacters = 256;
 	static constexpr size_t NumPermanent = FirstCharacterIdx + NumCharacters;
 	static constexpr size_t OTBase = NumPermanent;
+
+	static constexpr size_t MinimumVirtualMemoryAvailable = 256 * 1024 * 1024;
 
 	class OTEPool
 	{
@@ -272,8 +304,8 @@ public:
 		OTE* allocate();
 		void deallocate(OTE* ote);
 
-		BytesOTE* newByteObject(BehaviorOTE* classPointer, size_t bytes, OTEFlags::Spaces space);
-		PointersOTE* newPointerObject(BehaviorOTE* classPointer, size_t pointers, OTEFlags::Spaces space);
+		BytesOTE* newByteObject(BehaviorOTE* classPointer, size_t bytes, Spaces space);
+		PointersOTE* newPointerObject(BehaviorOTE* classPointer, size_t pointers, Spaces space);
 
 		void terminate()
 		{
@@ -414,7 +446,7 @@ private:
 
 	// Garbage collection/Ref count checking
 	static uint8_t WeaknessMask;
-	static size_t lastStrongPointerOf(OTE* ote);
+	static size_t lastStrongPointerOf(const OTE* ote);
 	static void reclaimInaccessibleObjects(uintptr_t flags);
 	static void markObjectsAccessibleFrom(OTE* ote);
 	static void ClearGCInfo();
@@ -457,7 +489,7 @@ private:
 
 public:			// Public Data
 
-	enum { dwOopsPerPage = dwPageSize/sizeof(Oop) };
+	static constexpr size_t dwOopsPerPage = dwPageSize/sizeof(Oop);
 
 	static uint32_t m_imageVersionMajor;	// MS part of image version number
 	static uint32_t m_imageVersionMinor;	// LS part of image version number
@@ -466,7 +498,7 @@ private:		// Private Data
 
 
 	static HANDLE m_hHeap;
-	enum { HEAPINITPAGES = 2 };
+	static constexpr size_t HEAPINITPAGES = 2;
 
 	static uint32_t m_nNextIdHash;					// Next identity hash value to use
 
@@ -475,7 +507,7 @@ private:		// Private Data
 	static size_t	m_nObjectsFreed;
 	static size_t	m_nBytesAllocated;
 	static size_t	m_nBytesFreed;
-#ifdef _DEBUG
+#ifdef TRACKFREEOTEs
 	static size_t	m_nFreeOTEs;
 	static size_t	CountFreeOTEs();
 #endif
@@ -584,12 +616,11 @@ inline void ObjectMemory::cantBeIntegerObject(Oop objectPointer)
 
 // MSVC seems to dislike expanding these as inlines, so add some useful macros
 
-inline void ObjectMemory::countUp(Oop objectPointer)
+__forceinline void ObjectMemory::countUp(Oop objectPointer)
 {
 	if (!isIntegerObject(objectPointer))
 	{
-		OTE* ote = reinterpret_cast<OTE*>(objectPointer);
-		ote->countUp();
+		reinterpret_cast<OTE*>(objectPointer)->countUp();
 	}
 }
 
@@ -597,8 +628,7 @@ inline void ObjectMemory::countDown(Oop rootObjectPointer)
 {
 	if (!isIntegerObject(rootObjectPointer))
 	{
-		OTE* rootOTE = reinterpret_cast<OTE*>(rootObjectPointer);
-		rootOTE->countDown();
+		reinterpret_cast<OTE*>(rootObjectPointer)->countDown();
 	}
 }
 
@@ -624,13 +654,15 @@ inline void __fastcall ObjectMemory::AddToZct(TOTE<Object>* ote)
 	m_nZctEntries = zctEntries;
 
 #ifdef _DEBUG
-	if (alwaysReconcileOnAdd || m_nZctEntries >= m_nZctHighWater)
+	if (!alwaysReconcileOnAdd && m_nZctEntries < m_nZctHighWater)
 #else
-	if (zctEntries >= m_nZctHighWater)
+	if (zctEntries < m_nZctHighWater)
 #endif
 	{
-		ReconcileZct();
+		return;
 	}
+
+	ReconcileZct();
 }
 
 inline void __fastcall ObjectMemory::AddStackRefToZct(TOTE<Object>* ote)
@@ -642,11 +674,13 @@ inline void __fastcall ObjectMemory::AddStackRefToZct(TOTE<Object>* ote)
 	m_pZct[zctEntries++] = reinterpret_cast<OTE*>(ote);
 	m_nZctEntries = zctEntries;
 
-	if (zctEntries >= m_nZctHighWater)
+	if (zctEntries < m_nZctHighWater)
 	{
-		// The Zct overflowed when attempting to repopulate it from the active process stack. We must "grow" it.
-		GrowZct();
+		return;
 	}
+
+	// The Zct overflowed when attempting to repopulate it from the active process stack. We must "grow" it.
+	GrowZct();
 }
 
 
@@ -664,55 +698,33 @@ inline Oop ObjectMemory::fetchPointerOfObject(size_t fieldIndex, PointersOTE* ot
 	return ote->m_location->m_fields[fieldIndex];
 }
 
-// SmallIntegers and some special objects are not ref. counted, so this saves a little time
-inline void __fastcall ObjectMemory::storePointerOfObjectWithUnrefCntdValue(size_t fieldIndex, PointersOTE* ote, Oop nonRefCountedPointer)
-{
-	ASSERT(fieldIndex < ote->pointersSize());
-	VariantObject* obj = ote->m_location;
-	countDown(obj->m_fields[fieldIndex]);
-	obj->m_fields[fieldIndex] = nonRefCountedPointer;
-}
-
-inline Oop ObjectMemory::storePointerOfObjectWithValue(size_t fieldIndex, PointersOTE* ote, Oop valuePointer)
-{
-	ASSERT(fieldIndex < ote->pointersSize());
-	countUp(valuePointer);
-	VariantObject* obj = ote->m_location;
-	countDown(obj->m_fields[fieldIndex]);
-	return obj->m_fields[fieldIndex] = valuePointer;
-}
-
 // Useful for overwriting structure members
-inline Oop ObjectMemory::storePointerWithValue(Oop& oopSlot, Oop oopValue)
+inline void ObjectMemory::storePointerWithValue(Oop& oopSlot, Oop oopValue)
 {
 	countUp(oopValue);	// Increase the reference count on stored object
 	Oop oldValue = oopSlot;
 	oopSlot = oopValue;
 	countDown(oldValue);
-	return oopValue;
 }
 
 // Useful for overwriting structure members
-inline Oop ObjectMemory::storePointerWithUnrefCntdValue(Oop& oopSlot, Oop oopValue)
+inline void ObjectMemory::storePointerWithUnrefCntdValue(Oop& oopSlot, Oop oopValue)
 {
 	Oop oldValue = oopSlot;
 	oopSlot = oopValue;
 	countDown(oldValue);
-	return oopValue;
 }
 
 // Useful for overwriting structure members
-inline OTE* ObjectMemory::storePointerWithValue(OTE*& oteSlot, OTE* oteValue)
+inline void ObjectMemory::storePointerWithValue(OTE*& oteSlot, OTE* oteValue)
 {
 	oteValue->countUp();			// Increase the reference count on stored object
 	OTE* oteOldValue = oteSlot;
 	oteSlot = oteValue;
 	oteOldValue->countDown();
-	return oteValue;
 }
 
-// Useful for overwriting structure members
-inline Oop ObjectMemory::storePointerWithValue(Oop& oopSlot, OTE* oteValue)
+inline void ObjectMemory::storePointerWithValue(Oop& oopSlot, OTE* oteValue)
 {
 	// Sadly compiler refuses to inline the count up code, and macro seems to generate
 	// bad code(!) so inline by hand
@@ -720,36 +732,13 @@ inline Oop ObjectMemory::storePointerWithValue(Oop& oopSlot, OTE* oteValue)
 	Oop oldValue = oopSlot;
 	oopSlot = reinterpret_cast<Oop>(oteValue);
 	countDown(oldValue);
-	return oopSlot;
-}
-
-inline void ObjectMemory::nilOutPointer(Oop& objectPointer)
-{
-	countDown(objectPointer);
-	objectPointer = reinterpret_cast<Oop>(Pointers.Nil);
 }
 
 inline void ObjectMemory::nilOutPointer(OTE*& ote)
 {
-	ote->countDown();
+	OTE* oldValue = ote;
 	ote = reinterpret_cast<OTE*>(Pointers.Nil);
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// Machine Word Access
-
-inline uintptr_t ObjectMemory::fetchWordOfObject(size_t wordIndex, Oop objectPointer)
-{
-	PointersOTE* ote = reinterpret_cast<PointersOTE*>(objectPointer);
-	VariantObject* obj = ote->m_location;
-	return obj->m_fields[wordIndex];
-}
-
-inline uintptr_t ObjectMemory::storeWordOfObjectWithValue(size_t wordIndex, Oop objectPointer, uintptr_t valueWord)
-{
-	PointersOTE* ote = reinterpret_cast<PointersOTE*>(objectPointer);
-	VariantObject* obj = ote->m_location;
-	return obj->m_fields[wordIndex] = valueWord;
+	oldValue->countDown();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -757,9 +746,9 @@ inline uintptr_t ObjectMemory::storeWordOfObjectWithValue(size_t wordIndex, Oop 
 
 inline BehaviorOTE* ObjectMemory::fetchClassOf(Oop objectPointer)
 {
-	return isIntegerObject(objectPointer) 
-			? Pointers.ClassSmallInteger 
-			: reinterpret_cast<OTE*>(objectPointer)->m_oteClass;
+	return !isIntegerObject(objectPointer)
+			? reinterpret_cast<OTE*>(objectPointer)->m_oteClass
+			: Pointers.ClassSmallInteger;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -822,15 +811,15 @@ inline bool ObjectMemory::isKindOf(Oop objectPointer, const BehaviorOTE* classPo
 
 inline void ObjectMemory::markObject(OTE* ote)
 {
-	ote->m_flags.m_mark = m_spaceOTEBits[OTEFlags::NormalSpace].m_mark;
+	ote->m_flags.m_mark = m_spaceOTEBits[static_cast<space_t>(Spaces::Normal)].m_mark;
 }
 
 // lastPointerOf includes the object header, sizeBitsOf()/mwordSizeOf() does NOT
-inline size_t ObjectMemory::lastStrongPointerOf(OTE* ote)
+inline size_t ObjectMemory::lastStrongPointerOf(const OTE* ote)
 {
 	uint8_t flags = ote->m_ubFlags;
 	return (flags & OTEFlags::PointerMask)
-		? (flags & WeaknessMask) == OTEFlags::WeakMask 
+		? (flags & WeaknessMask)
 				? ObjectHeaderSize + ote->m_oteClass->m_location->m_instanceSpec.m_fixedFields 
 				: ote->getWordSize()
 		: 0;
@@ -844,6 +833,7 @@ inline ObjectMemory::FixedSizePool& ObjectMemory::spacePoolForSize(size_t object
 {
 	auto nPool = (_ROUND2(objectSize, PoolGranularity) - MinObjectSize) / PoolGranularity;
 	ASSERT(nPool < MaxPools);
+	__assume(nPool < MaxPools);
 	ASSERT(nPool * PoolGranularity + (DWORD)MinObjectSize >= objectSize);
 	return m_pools[nPool];
 }
@@ -967,7 +957,7 @@ inline void ObjectMemory::OTEPool::deallocate(OTE* ote)
 }
 
 // Although this looks like a long routine to inline, in fact it is very few machine instructions
-inline BytesOTE* ObjectMemory::OTEPool::newByteObject(BehaviorOTE* classPointer, size_t bytes, OTEFlags::Spaces space)
+inline BytesOTE* ObjectMemory::OTEPool::newByteObject(BehaviorOTE* classPointer, size_t bytes, Spaces space)
 {
 	BytesOTE* ote = reinterpret_cast<BytesOTE*>(m_pFreeList);
 	if (ote)
@@ -992,10 +982,10 @@ inline BytesOTE* ObjectMemory::OTEPool::newByteObject(BehaviorOTE* classPointer,
 		#endif
 
 		// It MUST be the case that all pooled objects can reside in pool space
-		ASSERT(ote->heapSpace() == OTEFlags::PoolSpace);
+		ASSERT(ote->heapSpace() == Spaces::Pools);
 	}
 
-	ote->m_flags = m_spaceOTEBits[space];
+	ote->m_flags = m_spaceOTEBits[static_cast<space_t>(space)];
 	ASSERT(!ote->isFree());
 	ASSERT(!ote->isPointers());
 	ASSERT(ote->heapSpace() == space);
@@ -1007,7 +997,7 @@ inline BytesOTE* ObjectMemory::OTEPool::newByteObject(BehaviorOTE* classPointer,
 }
 
 // Although this looks like a long routine to inline, in fact it is very few machine instructions
-inline PointersOTE* ObjectMemory::OTEPool::newPointerObject(BehaviorOTE* classPointer, size_t pointers, OTEFlags::Spaces space)
+inline PointersOTE* ObjectMemory::OTEPool::newPointerObject(BehaviorOTE* classPointer, size_t pointers, Spaces space)
 {
 	PointersOTE* ote = reinterpret_cast<PointersOTE*>(m_pFreeList);
 	if (ote)
@@ -1033,10 +1023,10 @@ inline PointersOTE* ObjectMemory::OTEPool::newPointerObject(BehaviorOTE* classPo
 		#endif
 
 		// It MUST be the case that all pooled objects can reside in pool space
-		ASSERT(ote->heapSpace() == OTEFlags::PoolSpace);
+		ASSERT(ote->heapSpace() == Spaces::Pools);
 	}
 
-	ote->m_flags = m_spaceOTEBits[space];
+	ote->m_flags = m_spaceOTEBits[static_cast<space_t>(space)];
 	ASSERT(!ote->isFree());
 	ASSERT(ote->isPointers());
 	ASSERT(ote->heapSpace() == space);
@@ -1102,26 +1092,16 @@ inline ArrayOTE* ST::Array::NewUninitialized(size_t size)
 
 #include "STClassDesc.h"
 
-inline size_t ObjectMemory::GetBytesElementSize(BytesOTE* ote)
+__forceinline ByteElementSize ObjectMemory::GetBytesElementSize(BytesOTE * ote)
 {
 	ASSERT(ote->isBytes());
 
+	int shift = 0;
+	// Null-terminated classes (strings) have an encoding size
 	// TODO: Should be using revised InstanceSpec here, not string encoding
 	if (ote->m_flags.m_weakOrZ)
 	{
-		switch (reinterpret_cast<const StringClass*>(ote->m_oteClass->m_location)->Encoding)
-		{
-		case StringEncoding::Ansi:
-		case StringEncoding::Utf8:
-			return sizeof(uint8_t);
-
-		case StringEncoding::Utf16:
-			return sizeof(uint16_t);
-		case StringEncoding::Utf32:
-			return sizeof(uint32_t);
-		default:
-			__assume(false);
-		}
+		shift = (int)reinterpret_cast<const StringClass*>(ote->m_oteClass->m_location)->Encoding << 1;
 	}
-	return sizeof(uint8_t);
+	return static_cast<ByteElementSize>((0x90 >> shift) & 0x3);
 }

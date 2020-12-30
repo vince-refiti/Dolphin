@@ -1,16 +1,19 @@
 ﻿| package |
 package := Package name: 'Dolphin Base Tests'.
 package paxVersion: 1;
+	preDeclareClassesOnLoad: false;
 	basicComment: ''.
 
 
 package classNames
 	add: #AbstractDictionaryTest;
 	add: #AbstractFileStreamTest;
-	add: #AbstractStringTest;
+	add: #AbstractKeyboardTest;
 	add: #AlwaysSearchPolicyTest;
 	add: #AnsiStringTest;
 	add: #ArrayedCollectionTest;
+	add: #ArrayFieldTest;
+	add: #ArrayPointerFieldTest;
 	add: #ArrayTest;
 	add: #BagTest;
 	add: #BehaviorTest;
@@ -22,14 +25,15 @@ package classNames
 	add: #CharacterTest;
 	add: #ClassBuilderTestClasses;
 	add: #ClassBuilderTests;
+	add: #ClassDescriptionTest;
 	add: #ClassTest;
 	add: #CollectionCombinator;
-	add: #CommandDescriptionTest;
 	add: #CommandLineTest;
 	add: #CommandLineTestRunner;
 	add: #DateAndTimeTest;
 	add: #DateTest;
 	add: #DefaultSortAlgorithmTest;
+	add: #DelayTest;
 	add: #DictionaryTest;
 	add: #DiskVolumeInformationTest;
 	add: #DolphinCollectionTest;
@@ -46,6 +50,8 @@ package classNames
 	add: #ExternalAddressTest;
 	add: #ExternalArrayTest;
 	add: #ExternalDescriptorTest;
+	add: #ExternalFieldTest;
+	add: #ExternalIntegerTest;
 	add: #ExternalLibraryTest;
 	add: #ExternalResourceLibraryTest;
 	add: #ExternalStructureTest;
@@ -65,13 +71,18 @@ package classNames
 	add: #IntegerTest;
 	add: #IntervalTest;
 	add: #IntrosortAlgorithmTest;
+	add: #KeyboardTest;
 	add: #LargeIntegerTest;
+	add: #LinkTest;
 	add: #LocaleTest;
 	add: #LookupTableTest;
 	add: #MemoryManagerTest;
+	add: #MenuPainterTest;
 	add: #MergesortAlgorithmTest;
+	add: #MessageTest;
+	add: #MetaclassTest;
+	add: #MethodCategoryTest;
 	add: #MethodDictionaryTest;
-	add: #MultiByteStringTest;
 	add: #MustBeBooleanTestClasses;
 	add: #NeverSearchPolicyTest;
 	add: #NumberTest;
@@ -102,9 +113,13 @@ package classNames
 	add: #SortAlgorithmTest;
 	add: #SortedCollectionTest;
 	add: #StableSortAlgorithmTest;
+	add: #StackFrameTest;
 	add: #STBTest;
 	add: #StdioFileStreamTest;
 	add: #StreamTest;
+	add: #StringTest;
+	add: #StructureArrayFieldTest;
+	add: #StructureArrayPointerFieldTest;
 	add: #StructureArrayTest;
 	add: #SWORDArrayTest;
 	add: #SymbolTest;
@@ -116,6 +131,8 @@ package classNames
 	add: #UndefinedObjectTest;
 	add: #Utf16StringTest;
 	add: #Utf8StringTest;
+	add: #UtfEncodedStringTest;
+	add: #WCHARFieldTest;
 	add: #WindowsLocaleTest;
 	add: #WORDArrayTest;
 	add: #WriteStreamTest;
@@ -138,17 +155,20 @@ package globalAliases: (Set new
 	yourself).
 
 package setPrerequisites: #(
+	'..\ActiveX\Components\Scripting\ActiveX Scripting'
 	'..\System\Trace\Debug Trace Stream'
 	'..\IDE\Base\Development System'
 	'Dolphin'
 	'Dolphin Additional Sort Algorithms'
 	'Dolphin Anonymous Classes'
-	'Deprecated\Dolphin Base (Deprecated)'
+	'..\MVP\Base\Dolphin Basic Geometry'
 	'Dolphin Command-line Parser'
 	'..\System\Random\Dolphin CRT Random Stream'
 	'Dolphin Legacy Date & Time'
 	'Dolphin Message Box'
+	'..\MVP\Base\Dolphin MVP Base'
 	'..\System\Random\Dolphin Random Stream'
+	'..\Registry\Dolphin Registry Access'
 	'..\System\Compiler\Smalltalk Parser'
 	'..\..\..\Contributions\Camp Smalltalk\SUnit\SUnit'
 	'..\ActiveX\Components\XML DOM\XML DOM').
@@ -185,6 +205,11 @@ TestCase subclass: #DolphinTest
 	classVariableNames: ''
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
+DolphinTest subclass: #AbstractKeyboardTest
+	instanceVariableNames: 'savedLayout'
+	classVariableNames: ''
+	poolDictionaries: 'Win32Constants'
+	classInstanceVariableNames: ''!
 DolphinTest subclass: #BagTest
 	instanceVariableNames: ''
 	classVariableNames: ''
@@ -215,12 +240,7 @@ DolphinTest subclass: #ClassBuilderTests
 	classVariableNames: ''
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
-DolphinTest subclass: #ClassTest
-	instanceVariableNames: ''
-	classVariableNames: ''
-	poolDictionaries: ''
-	classInstanceVariableNames: ''!
-DolphinTest subclass: #CommandDescriptionTest
+DolphinTest subclass: #ClassDescriptionTest
 	instanceVariableNames: ''
 	classVariableNames: ''
 	poolDictionaries: ''
@@ -232,6 +252,11 @@ DolphinTest subclass: #DateAndTimeTest
 	classInstanceVariableNames: ''!
 DolphinTest subclass: #DateTest
 	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+DolphinTest subclass: #DelayTest
+	instanceVariableNames: 'delay startTime'
 	classVariableNames: ''
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
@@ -269,6 +294,16 @@ DolphinTest subclass: #ExternalDescriptorTest
 	instanceVariableNames: ''
 	classVariableNames: ''
 	poolDictionaries: 'ExtCallArgTypes'
+	classInstanceVariableNames: ''!
+DolphinTest subclass: #ExternalFieldTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+DolphinTest subclass: #ExternalIntegerTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
 	classInstanceVariableNames: ''!
 DolphinTest subclass: #ExternalLibraryTest
 	instanceVariableNames: ''
@@ -320,12 +355,32 @@ DolphinTest subclass: #IntegerTest
 	classVariableNames: ''
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
-DolphinTest subclass: #LocaleTest
+DolphinTest subclass: #LinkTest
 	instanceVariableNames: ''
 	classVariableNames: ''
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
+DolphinTest subclass: #LocaleTest
+	instanceVariableNames: 'savedLocale'
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
 DolphinTest subclass: #MemoryManagerTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+DolphinTest subclass: #MenuPainterTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+DolphinTest subclass: #MessageTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+DolphinTest subclass: #MethodCategoryTest
 	instanceVariableNames: ''
 	classVariableNames: ''
 	poolDictionaries: ''
@@ -390,6 +445,11 @@ DolphinTest subclass: #SortAlgorithmTest
 	classVariableNames: ''
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
+DolphinTest subclass: #StackFrameTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
 DolphinTest subclass: #STBTest
 	instanceVariableNames: ''
 	classVariableNames: ''
@@ -406,7 +466,7 @@ DolphinTest subclass: #TimeStampTest
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
 DolphinTest subclass: #TimeTest
-	instanceVariableNames: ''
+	instanceVariableNames: 'savedLocale'
 	classVariableNames: ''
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
@@ -416,6 +476,21 @@ DolphinTest subclass: #TrueTest
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
 DolphinTest subclass: #UndefinedObjectTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+AbstractKeyboardTest subclass: #KeyboardTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+ClassDescriptionTest subclass: #ClassTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+ClassDescriptionTest subclass: #MetaclassTest
 	instanceVariableNames: ''
 	classVariableNames: ''
 	poolDictionaries: ''
@@ -475,11 +550,6 @@ SequenceableCollectionTest subclass: #SequencedGrowableCollectionTest
 	classVariableNames: ''
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
-ArrayedCollectionTest subclass: #AbstractStringTest
-	instanceVariableNames: ''
-	classVariableNames: ''
-	poolDictionaries: ''
-	classInstanceVariableNames: ''!
 ArrayedCollectionTest subclass: #ArrayTest
 	instanceVariableNames: ''
 	classVariableNames: ''
@@ -495,27 +565,32 @@ ArrayedCollectionTest subclass: #RunArrayTest
 	classVariableNames: ''
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
-AbstractStringTest subclass: #AnsiStringTest
+ArrayedCollectionTest subclass: #StringTest
 	instanceVariableNames: ''
 	classVariableNames: ''
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
-AbstractStringTest subclass: #MultiByteStringTest
+StringTest subclass: #AnsiStringTest
 	instanceVariableNames: ''
 	classVariableNames: ''
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
-AbstractStringTest subclass: #SymbolTest
+StringTest subclass: #UtfEncodedStringTest
 	instanceVariableNames: ''
 	classVariableNames: ''
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
-MultiByteStringTest subclass: #Utf16StringTest
+UtfEncodedStringTest subclass: #Utf16StringTest
 	instanceVariableNames: ''
 	classVariableNames: ''
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
-MultiByteStringTest subclass: #Utf8StringTest
+UtfEncodedStringTest subclass: #Utf8StringTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+Utf8StringTest subclass: #SymbolTest
 	instanceVariableNames: ''
 	classVariableNames: ''
 	poolDictionaries: ''
@@ -566,6 +641,31 @@ ExternalArrayTest subclass: #WORDArrayTest
 	poolDictionaries: ''
 	classInstanceVariableNames: ''!
 GenericExternalArrayTest subclass: #StructureArrayTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+ExternalFieldTest subclass: #ArrayFieldTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+ExternalFieldTest subclass: #ArrayPointerFieldTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+ExternalFieldTest subclass: #StructureArrayFieldTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+ExternalFieldTest subclass: #StructureArrayPointerFieldTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+ExternalFieldTest subclass: #WCHARFieldTest
 	instanceVariableNames: ''
 	classVariableNames: ''
 	poolDictionaries: ''
@@ -869,7 +969,7 @@ writeJunitTestLog: aTestSuite result: aTestResult
 						at: 'message' put: each signal description;
 						at: 'type' put: each signal class name;
 						free.
-					errorNode text: each stacktrace.
+					errorNode text: each diagnostic.
 					errorNode free].
 			outcome == #failed
 				ifTrue: 
@@ -880,7 +980,7 @@ writeJunitTestLog: aTestSuite result: aTestResult
 						at: 'message' put: each signal description;
 						at: 'type' put: each signal class name;
 						free.
-					failureNode text: each stacktrace.
+					failureNode text: each diagnostic.
 					failureNode free].
 			outcome == #skipped
 				ifTrue: 

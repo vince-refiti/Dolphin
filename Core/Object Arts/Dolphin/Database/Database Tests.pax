@@ -1,12 +1,18 @@
 ﻿| package |
 package := Package name: 'Database Tests'.
 package paxVersion: 1;
+	preDeclareClassesOnLoad: false;
 	basicComment: ''.
 
 
 package classNames
+	add: #AccessDBTest;
+	add: #AccessNorthwindDB;
 	add: #DBConnectionTest;
+	add: #DBConnectionTestResource;
 	add: #DBTest;
+	add: #SQLServerDBTest;
+	add: #SQLServerNorthwindDB;
 	yourself.
 
 package binaryGlobalNames: (Set new
@@ -19,7 +25,9 @@ package setPrerequisites: #(
 	'Database Connection Base'
 	'..\IDE\Base\Development System'
 	'..\Base\Dolphin'
-	'..\..\..\..\..\Base Image\Core\Object Arts\Dolphin\Base\Dolphin Base Tests').
+	'..\Base\Dolphin Base Tests'
+	'..\..\..\Contributions\Burning River\ExternalProcess\ExternalProcess'
+	'..\..\..\Contributions\Camp Smalltalk\SUnit\SUnit').
 
 package!
 
@@ -34,6 +42,31 @@ DBTest subclass: #DBConnectionTest
 	instanceVariableNames: ''
 	classVariableNames: ''
 	poolDictionaries: 'ODBCConstants ODBCTypes'
+	classInstanceVariableNames: ''!
+DBConnectionTest subclass: #AccessDBTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+DBConnectionTest subclass: #SQLServerDBTest
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+TestResource subclass: #DBConnectionTestResource
+	instanceVariableNames: 'connection isAvailable'
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+DBConnectionTestResource subclass: #AccessNorthwindDB
+	instanceVariableNames: 'filename'
+	classVariableNames: ''
+	poolDictionaries: ''
+	classInstanceVariableNames: ''!
+DBConnectionTestResource subclass: #SQLServerNorthwindDB
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
 	classInstanceVariableNames: ''!
 
 "Global Aliases"!

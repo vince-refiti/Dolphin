@@ -59,7 +59,7 @@ HRESULT ObjectMemory::LoadImage(const wchar_t* szImageName, LPVOID imageData, si
 {
 #ifdef PROFILE_IMAGELOADSAVE
 	TRACESTREAM<< L"Loading image '" << szImageName << std::endl;
-	DWORD dwStartTicks = GetTickCount();
+	ULONGLONG dwStartTicks = GetTickCount64();
 #endif
 
 	HRESULT hr;
@@ -92,8 +92,8 @@ HRESULT ObjectMemory::LoadImage(const wchar_t* szImageName, LPVOID imageData, si
 	}
 
 #ifdef PROFILE_IMAGELOADSAVE
-	DWORD msToRun = GetTickCount() - dwStartTicks;
-	TRACESTREAM<< L" done (" << (SUCCEEDED(hr) ? "Succeeded" : "Failed")<< L"), binstreams time=" << long(msToRun)<< L"mS" << std::endl;
+	int64_t msToRun = GetTickCount64() - dwStartTicks;
+	TRACESTREAM<< L" done (" << (SUCCEEDED(hr) ? "Succeeded" : "Failed")<< L"), binstreams time=" << msToRun << L"mS" << std::endl;
 #endif
 
 	return hr;
@@ -243,7 +243,7 @@ HRESULT ObjectMemory::LoadObjectTable(ibinstream& imageFile, const ImageHeader* 
 
 // Load objects and repair the free list
 
-template <size_t ImageNullTerms> HRESULT ObjectMemory::LoadObjects(ibinstream & imageFile, const ImageHeader * pHeader, size_t & cbRead)
+template <size_t ImageNullTerms> HRESULT ObjectMemory::LoadObjects(ibinstream& imageFile, const ImageHeader* pHeader, size_t& cbRead)
 {
 	// Other free OTEs will be threaded in front of the first OTE off the end
 	// of the currently committed table space. We set the free list pointer
@@ -255,6 +255,9 @@ template <size_t ImageNullTerms> HRESULT ObjectMemory::LoadObjects(ibinstream & 
 
 #ifdef _DEBUG
 	auto numObjects = NumPermanent;	// Allow for VM registry, etc!
+#endif
+
+#ifdef TRACKFREEOTEs
 	m_nFreeOTEs = m_nOTSize - pHeader->nTableSize;
 #endif
 
@@ -270,7 +273,7 @@ template <size_t ImageNullTerms> HRESULT ObjectMemory::LoadObjects(ibinstream & 
 			Object* pBody;
 
 			// Allocate space for the object, and copy into that space
-			if (ote->heapSpace() == OTEFlags::VirtualSpace)
+			if (ote->heapSpace() == Spaces::Virtual)
 			{
 				size_t maxAlloc;
 				if (!imageFile.read(&maxAlloc, sizeof(maxAlloc)))
@@ -314,9 +317,9 @@ template <size_t ImageNullTerms> HRESULT ObjectMemory::LoadObjects(ibinstream & 
 		else
 		{
 			// Thread onto the free list
-			ote->m_location = (reinterpret_cast<POBJECT>(m_pFreePointerList));
+			ote->m_location = MakeNextFree(m_pFreePointerList);
 			m_pFreePointerList = ote;
-#ifdef _DEBUG
+#ifdef TRACKFREEOTEs
 			m_nFreeOTEs++;
 #endif
 		}
@@ -326,9 +329,12 @@ template <size_t ImageNullTerms> HRESULT ObjectMemory::LoadObjects(ibinstream & 
 	// it must point off into space in order to get a GPF when it
 	// needs to be expanded (at which point we commit more pages)
 
+#ifdef TRACKFREEOTEs
+	assert(m_nFreeOTEs == CountFreeOTEs());
+#endif
+
 #ifdef _DEBUG
 	ASSERT(numObjects + m_nFreeOTEs == m_nOTSize);
-	ASSERT(m_nFreeOTEs = CountFreeOTEs());
 	TRACESTREAM << std::dec << numObjects<< L", " << m_nFreeOTEs<< L" free" << std::endl;
 #endif
 
@@ -343,13 +349,13 @@ ST::Object* ObjectMemory::AllocObj(OTE * ote, size_t allocSize)
 	{
 		// Allocate from one of the memory pools
 		pObj = static_cast<POBJECT>(allocSmallChunk(allocSize));
-		ote->m_flags.m_space = OTEFlags::PoolSpace;
+		ote->m_flags.m_space = static_cast<space_t>(Spaces::Pools);
 	}
 	else
 	{
 		// Normal space and other spaces allocated from heap (may not be too many)
 		pObj = static_cast<POBJECT>(allocChunk(allocSize));
-		ote->m_flags.m_space = OTEFlags::NormalSpace;
+		ote->m_flags.m_space = static_cast<space_t>(Spaces::Normal);
 	}
 
 	ote->m_location = pObj;
@@ -418,7 +424,7 @@ void ObjectMemory::FixupObject(OTE* ote, uintptr_t* oldLocation, const ImageHead
 		// Look for the special image stamp object
 		else if (classPointer == _Pointers.ClassContext)
 		{
-			ASSERT(ote->heapSpace() == OTEFlags::PoolSpace || ote->heapSpace() == OTEFlags::NormalSpace);
+			ASSERT(ote->heapSpace() == Spaces::Pools || ote->heapSpace() == Spaces::Normal);
 
 			// Can't deallocate now - must leave for collection later - maybe could go in the Zct though.
 			VERIFY(ote->decRefs());
@@ -546,7 +552,7 @@ void ObjectMemory::PostLoadFix()
 			}
 			else if (ote->m_oteClass == _Pointers.ClassProcess)
 			{
-				ASSERT(ote->heapSpace() == OTEFlags::VirtualSpace);
+				ASSERT(ote->heapSpace() == Spaces::Virtual);
 				ProcessOTE* oteProcess = reinterpret_cast<ProcessOTE*>(ote);
 				Process* process = oteProcess->m_location;
 				process->PostLoadFix(oteProcess);

@@ -423,58 +423,28 @@ modifyProper
 	self superclassIsBeingChanged ifTrue: [self removeUnimplementedProtocols]
 !
 
-mutateAllInstancesOf: oldClass toBeInstancesOf: newClass 
-	"Private - Mutate all instances of oldClass to instances of newClass."
-
-	| mappingArray |
-	mappingArray := self generateMapFrom: oldClass to: newClass.
-	oldClass primAllInstances do: 
-			[:oldInst | 
-			| newInst |
-			newInst := self 
-						translateInstance: oldInst
-						intoANewInstanceOf: newClass
-						via: mappingArray.
-			"We need to manually move the special behavior as #become: does not"
-			newInst setSpecialBehavior: (oldInst setSpecialBehavior: 16rFF00).
-			oldInst become: newInst]!
-
 mutateClass: oldClass toBeASubclassOf: newSuperclass
-	"Private - Create a new class with the appropriate features and mutate
-	all instances of oldClass to new instances of the new class and then 
-	recursively make the same change to the subclasses of aClass. Finally,
-	remove the oldClass and if appropriate its metaclass from their
-	respective superclasses and do a #oneWayBeome: on oldClass to newClass.
-	Implementation Note: We must not access any instance variables after mutation, in case
-	the receiver is being mutated and the inst. var offsets change."
+	"Private - Create a new class with the appropriate features and mutate	all instances of oldClass to new instances of the new class and then recursively make the same change to the subclasses of aClass. Finally, remove the oldClass and if appropriate its metaclass from their respective superclasses and do a #oneWayBeome: on oldClass to newClass.
+	Implementation Note: We must not access any instance variables after mutation, in case the receiver is being mutated and the inst. var offsets change."
 
-	oldClass isMeta
+	| newClass mutatingClassItself |
+	mutatingClassItself := oldClass == Class.
+	newClass := self newClassLike: oldClass superclass: newSuperclass.
+	self install: newClass.
+	self
+		mutateInstances: oldClass primAllInstances
+		of: oldClass
+		toBeInstancesOf: newClass.
+	mutatingClassItself
 		ifTrue: 
-			[| newClass |
-			newClass := self newMetaclassLike: oldClass superclass: newSuperclass.
-			self mutateAllInstancesOf: oldClass toBeInstancesOf: newClass.	"Mutate the instance class."
-			self updateVMRegistryWith: newClass instanceClass.
-			oldClass subclasses do: [:cls | self mutateClass: cls toBeASubclassOf: newClass].
-			oldClass removeFromSuper.
-			oldClass become: newClass.
-			newClass oneWayBecome: oldClass]
-		ifFalse: 
-			[| newClass mutatingClassItself |
-			mutatingClassItself := oldClass == Class.
-			newClass := self newClassLike: oldClass superclass: newSuperclass.
-			self install: newClass.
-			self mutateAllInstancesOf: oldClass toBeInstancesOf: newClass.
-			mutatingClassItself
-				ifTrue: 
-					["In Dolphin Object class et al are not in the subclasses
-					collection of Class, so need special case handling"
-					Smalltalk allRoots do: [:each | self mutateClass: each class toBeASubclassOf: newClass]]
-				ifFalse: [oldClass subclasses do: [:cls | self mutateClass: cls toBeASubclassOf: newClass]].
-			oldClass class removeFromSuper.
-			oldClass removeFromSuper.
-			oldClass become: newClass.
-			newClass oneWayBecome: oldClass.
-			self updateVMRegistryWith: newClass]!
+			["In Dolphin Object class et al are not in the subclasses collection of Class, so need special case handling"
+			Smalltalk allRoots do: [:each | self mutateClass: each class toBeASubclassOf: newClass]]
+		ifFalse: [oldClass subclasses do: [:cls | self mutateClass: cls toBeASubclassOf: newClass]].
+	oldClass class removeFromSuper.
+	oldClass removeFromSuper.
+	oldClass become: newClass.
+	newClass oneWayBecome: oldClass.
+	self updateVMRegistryWith: newClass!
 
 mutateInSitu
 	"Private - Mutate the class being modified without mutating its instances.
@@ -487,12 +457,50 @@ mutateInSitu
 			self instanceVariablesAreBeingChanged ifTrue: [self setInstanceVariablesOf: currentClass].
 			self recompilationRequired: true].!
 
+mutateInstances: anArray of: oldClass toBeInstancesOf: newClass
+	"Private - Mutate the instances of oldClass in anArray to be instances of newClass."
+
+	| mappingArray count |
+	count := anArray size.
+	count == 0 ifTrue: [^self].
+	mappingArray := self generateMapFrom: oldClass to: newClass.
+	1 to: count
+		do: 
+			[:i |
+			| oldInst newInst |
+			oldInst := anArray at: i.
+			newInst := self
+						translateInstance: oldInst
+						intoANewInstanceOf: newClass
+						via: mappingArray.
+			"We need to manually move the special behavior as #become: does not"
+			newInst setSpecialBehavior: (oldInst setSpecialBehavior: 16rFF00).
+			oldInst become: newInst]!
+
+mutateMetaclass: oldMetaclass toBeASubclassOf: newSuperclass
+	"Private - Create a new Metaclass with the appropriate features and mutate all instances of oldClass to new instances of the new class and then recursively make the same change to the subclasses of aClass. Finally, remove the oldClass and if appropriate its metaclass from their respective superclasses and do a #oneWayBeome: on oldClass to newClass.
+	Implementation Note: We must not access any instance variables after mutation, in case the receiver is being mutated and the inst. var offsets change."
+
+	| newMetaclass |
+	newMetaclass := self newMetaclassLike: oldMetaclass superclass: newSuperclass.
+	self
+		mutateInstances: {oldMetaclass instanceClass}
+		of: oldMetaclass
+		toBeInstancesOf: newMetaclass.	"Mutate the instance class."
+	self updateVMRegistryWith: newMetaclass instanceClass.
+	oldMetaclass subclasses do: [:metaclass | self mutateMetaclass: metaclass toBeASubclassOf: newMetaclass].
+	oldMetaclass removeFromSuper.
+	oldMetaclass become: newMetaclass.
+	newMetaclass oneWayBecome: oldMetaclass!
+
 mutateToNewClass
 	"Private - Set currentClass to a mutation of itself based on the information
 	in the receiver. The instances of the new currentClass are mutations of the
 	instances of the old currentClass."
 
-	self mutateClass: currentClass toBeASubclassOf: superclass!
+	currentClass isMeta
+		ifTrue: [self mutateMetaclass: currentClass toBeASubclassOf: superclass]
+		ifFalse: [self mutateClass: currentClass toBeASubclassOf: superclass]!
 
 newClassLike: aClass superclass: aSuperclass
 	"Private - Answer a new class based on aClass with superclass aSuperclass.
@@ -683,16 +691,17 @@ translateInstance: oldInstance intoANewInstanceOf: newClass via: mappingArray
 	^newInstance!
 
 updateVMRegistryWith: aClass
-	"Private - Ensure that if aClass is a VM registered class then the VM's
-	entry is updated to the new class."
+	"Private - Ensure that if aClass is a VM registered class then the VM's entry is updated to the new class."
 
 	| name |
 	name := aClass name asSymbol.
-	((VMLibrary registryKeys includesKey: name) and: 
-			[| current |
-			current := VMLibrary default registryAt: name.
-			current isNil or: [current class isMetaclass]])
-		ifTrue: [VMLibrary default registryAt: name put: aClass]!
+	(VMLibrary.RegistryKeys lookup: name)
+		ifNotNil: 
+			[:index |
+			| current |
+			current := VMLibrary.Registry at: index.
+			(current isNil or: [current class isMetaclass])
+				ifTrue: [VMLibrary default registryAtIndex: index put: aClass]]!
 
 validateClass
 	"Private - Ensure that currentClass is a valid Behavior."
@@ -962,10 +971,11 @@ validateSuperclassIsSubclassable
 !ClassBuilder categoriesFor: #modifyExistingClass!operations!private! !
 !ClassBuilder categoriesFor: #modifyOrCreate!operations!public! !
 !ClassBuilder categoriesFor: #modifyPrivate!operations!private! !
-!ClassBuilder categoriesFor: #modifyProper!helpers!private! !
-!ClassBuilder categoriesFor: #mutateAllInstancesOf:toBeInstancesOf:!mutating!private! !
+!ClassBuilder categoriesFor: #modifyProper!private! !
 !ClassBuilder categoriesFor: #mutateClass:toBeASubclassOf:!mutating!private! !
 !ClassBuilder categoriesFor: #mutateInSitu!mutating!private! !
+!ClassBuilder categoriesFor: #mutateInstances:of:toBeInstancesOf:!mutating!private! !
+!ClassBuilder categoriesFor: #mutateMetaclass:toBeASubclassOf:!mutating!private! !
 !ClassBuilder categoriesFor: #mutateToNewClass!mutating!private! !
 !ClassBuilder categoriesFor: #newClassLike:superclass:!mutating!private! !
 !ClassBuilder categoriesFor: #newMetaclassLike:superclass:!mutating!private! !

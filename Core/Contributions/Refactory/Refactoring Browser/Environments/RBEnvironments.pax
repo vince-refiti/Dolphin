@@ -1,6 +1,7 @@
 ﻿| package |
 package := Package name: 'RBEnvironments'.
 package paxVersion: 1;
+	preDeclareClassesOnLoad: false;
 	basicComment: 'Refactoring Browser Environments
 Copyright (c) John Brant & Don Roberts.
 
@@ -150,7 +151,7 @@ isBehavior
 numberSelectors
 	"Answer the number of selectors in the receiver's method dictionary."
 
-	^(methodDictionary ?? #()) size!
+	^methodDictionary ifNil: [0] ifNotNil: [methodDictionary size]!
 
 selectorsAndMethodsDo: aDyadicValuable
 	"Evaluate the <dyadicValuable> argument for each of the selector/method pairs in 

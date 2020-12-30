@@ -1,6 +1,7 @@
 ﻿| package |
 package := Package name: 'Dolphin Base Icons'.
 package paxVersion: 1;
+	preDeclareClassesOnLoad: false;
 	basicComment: 'Dolphin Base Icons
 Copyright (c) Object Arts Ltd, 2018.
 
@@ -18,6 +19,7 @@ package methodNames
 	add: 'ArithmeticValue class' -> #icon;
 	add: 'Array class' -> #icon;
 	add: 'Association class' -> #icon;
+	add: 'Bag class' -> #icon;
 	add: 'Behavior class' -> #icon;
 	add: 'BlockClosure class' -> #icon;
 	add: 'BOOL class' -> #icon;
@@ -55,6 +57,7 @@ package methodNames
 	add: 'FLOAT class' -> #icon;
 	add: 'Fraction class' -> #icon;
 	add: 'FramingLayout class' -> #icon;
+	add: 'GUID class' -> #icon;
 	add: 'InputState class' -> #icon;
 	add: 'Integer class' -> #icon;
 	add: 'Interval class' -> #icon;
@@ -87,6 +90,7 @@ package methodNames
 	add: 'ScaledDecimal class' -> #icon;
 	add: 'SearchPolicy class' -> #icon;
 	add: 'Semaphore class' -> #icon;
+	add: 'Set class' -> #icon;
 	add: 'Signal class' -> #icon;
 	add: 'SortAlgorithm class' -> #icon;
 	add: 'Sound class' -> #icon;
@@ -183,6 +187,16 @@ icon
 		textcolor: Color darkBlue;
 		yourself)! !
 !Association class categoriesFor: #icon!constants!public! !
+
+!Bag class methodsFor!
+
+icon
+	"Answers an Icon that can be used to represent this class"
+
+	^##((TextTileIcon text: '⟅ ⟆' fontName: 'Cambria')
+		textcolor: Color darkBlue;
+		yourself)! !
+!Bag class categoriesFor: #icon!constants!public! !
 
 !Behavior class methodsFor!
 
@@ -540,6 +554,14 @@ icon
 	^(TextTileIcon text: $\x1F5BD)! !
 !FramingLayout class categoriesFor: #icon!constants!public! !
 
+!GUID class methodsFor!
+
+icon
+	"Answers an Icon that can be used to represent this class"
+
+	^##(self) defaultIcon! !
+!GUID class categoriesFor: #icon!constants!public! !
+
 !InputState class methodsFor!
 
 icon
@@ -819,6 +841,16 @@ icon
 		textcolor: Color red;
 		yourself)! !
 !Semaphore class categoriesFor: #icon!public! !
+
+!Set class methodsFor!
+
+icon
+	"Answers an Icon that can be used to represent this class"
+
+	^##((TextTileIcon text: '{ }' fontName: 'Cambria')
+		textcolor: Color darkBlue;
+		yourself)! !
+!Set class categoriesFor: #icon!constants!public! !
 
 !Signal class methodsFor!
 

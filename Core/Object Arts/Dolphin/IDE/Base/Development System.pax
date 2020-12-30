@@ -1,6 +1,7 @@
 ﻿| package |
 package := Package name: 'Development System'.
 package paxVersion: 1;
+	preDeclareClassesOnLoad: false;
 	basicComment: 'Dolphin Smalltalk Development System.
     Copyright (c) Object Arts Ltd, 1997-2007. Portions Copyright (c) CGI Group (Europe) Ltd, 1997.
     
@@ -133,6 +134,8 @@ package classNames
 package methodNames
 	add: #_FPIEEE_RECORD -> #printFieldsOn:limit:;
 	add: #_FPIEEE_VALUE -> #printFieldsOn:limit:;
+	add: #AbstractCHARField -> #characterCreationMessage;
+	add: #AbstractCHARField -> #printAccessorExpression:on:;
 	add: #AbstractDocumentShell -> #saveStateOn:;
 	add: #AndEnvironment -> #includesResource:;
 	add: #Array -> #assignToResourceIdentifier:;
@@ -177,7 +180,8 @@ package methodNames
 	add: #BrowserEnvironmentWrapper -> #includesResource:;
 	add: #BrowserEnvironmentWrapper -> #openEditor;
 	add: #Character -> #literalTextStyle;
-	add: #CHARField -> #printAccessorExpressionSuffixOn:;
+	add: #CHARField -> #accessorMessage;
+	add: #CHARField -> #characterCreationMessage;
 	add: #Class -> #changeIndex;
 	add: #Class -> #changeIndexValue:;
 	add: #Class -> #isAbstract;
@@ -230,6 +234,7 @@ package methodNames
 	add: #CompiledMethod -> #asDebugMethod;
 	add: #CompiledMethod -> #browse;
 	add: #CompiledMethod -> #icon;
+	add: #CompiledMethod -> #infoTip;
 	add: #CompiledMethod -> #searchForInTool:;
 	add: #CompiledMethod -> #stylerClass;
 	add: #CompileFailedMethod -> #asDebugMethod;
@@ -368,7 +373,7 @@ package methodNames
 	add: #SpinButton -> #publishedAspects;
 	add: #StAbstractVariableNode -> #displayOn:;
 	add: #StackFrame -> #debugIpFor:;
-	add: #StackFrame -> #findIP:inTextMap:;
+	add: #StackFrame -> #debugPrintOn:;
 	add: #StackFrame -> #makeDebug;
 	add: #StackFrame -> #stackWorkspace;
 	add: #StAssignmentNode -> #displayOn:;
@@ -427,6 +432,8 @@ package methodNames
 	add: #View -> #aspectDisplayOn:;
 	add: #View -> #publishedAspects;
 	add: #View -> #visualObjectAtPoint:;
+	add: #WCHARField -> #accessorMessage;
+	add: #WCHARField -> #characterCreationMessage;
 	add: #WINDOWPOS -> #printOn:;
 	add: 'AbstractCardContainer class' -> #publishedAspectsOfInstances;
 	add: 'AbstractCardContainer class' -> #publishedEventsOfInstances;
@@ -572,6 +579,7 @@ package methodNames
 	add: 'ScrollBar class' -> #publishedAspectsOfInstances;
 	add: 'ScrollingDecorator class' -> #publishedAspectsOfInstances;
 	add: 'ScrollingDecoratorLayout class' -> #publishedAspectsOfInstances;
+	add: 'SearchPolicy class' -> #method;
 	add: 'SequenceableCollection class' -> #newInstanceAspect:class:;
 	add: 'SessionManager class' -> #publishedEventsOfInstances;
 	add: 'Set class' -> #newInstanceAspect:class:;
@@ -973,9 +981,9 @@ Presenter subclass: #SmalltalkSearchPresenter
 	classInstanceVariableNames: ''!
 Presenter subclass: #SmalltalkWorkspace
 	instanceVariableNames: 'evaluationContext errorModel findDetails workspacePool evaluationPools compilationErrors textStyles searchEnvironment modifiedModel flags indicatorStyles'
-	classVariableNames: 'Abbreviations AnnotationMode AutoCompleteDwell AutoCompleteMask DefaultCaretColor DefaultFont DefaultTabWidth IndicatorStyles IsAutoCompletionCaseInsensitive IsAutoCompletionEnabled IsAutoCompletionSpaceAdded IsAutoCompletionTruncating KeyBindings KeywordCompletions MaxAutoCompletionListSize StandardUnaryReturnTypes TextStyles VariableTipsMask WordWrap WrapIndentMode'
+	classVariableNames: 'Abbreviations AnnotationMode AutoCompleteDwell AutoCompleteMask DefaultCaretColor DefaultFont DefaultTabWidth FontQuality IndicatorStyles IsAutoCompletionCaseInsensitive IsAutoCompletionEnabled IsAutoCompletionSpaceAdded IsAutoCompletionTruncating KeyBindings KeywordCompletions MaxAutoCompletionListSize StandardUnaryReturnTypes TextStyles UseDirectWrite VariableTipsMask WordWrap WrapIndentMode'
 	poolDictionaries: 'CompilerFlags ScintillaConstants'
-	classInstanceVariableNames: 'additionalAccelerators commandQueryHandlers'!
+	classInstanceVariableNames: 'additionalKeyBindings commandQueryHandlers'!
 Presenter subclass: #TwinLevelInspector
 	instanceVariableNames: 'contentsPresenter inspectorPresenter'
 	classVariableNames: ''
@@ -1045,7 +1053,7 @@ Shell subclass: #SmalltalkToolShell
 	instanceVariableNames: 'searchPresenter fontSizePresenter'
 	classVariableNames: 'CanUseIdeaSpaceMask HistoryDwellTime ReuseIfOpenMask SearchFieldFlashes'
 	poolDictionaries: ''
-	classInstanceVariableNames: 'optionFlags defaultView defaultExtent defaultSlideyPinsMap additionalAccelerators commandQueryHandlers'!
+	classInstanceVariableNames: 'optionFlags defaultView defaultExtent defaultSlideyPinsMap additionalKeyBindings commandQueryHandlers'!
 AbstractDocumentShell subclass: #SmalltalkWorkspaceDocument
 	instanceVariableNames: 'workspacePresenter searchPresenter'
 	classVariableNames: 'CanUseIdeaSpace DefaultExtent DefaultView LanguageExtensions ReuseIfOpen VariableTips'
@@ -1402,6 +1410,30 @@ publishedEventsOfInstances
 !AbstractCardContainer class categoriesFor: #publishedAspectsOfInstances!constants!public! !
 !AbstractCardContainer class categoriesFor: #publishedEventsOfInstances!events!public! !
 
+!AbstractCHARField methodsFor!
+
+characterCreationMessage
+	^self subclassResponsibility!
+
+printAccessorExpression: aSymbol on: aWriteStream
+	"Private - Print a suitable statement or statement onto the specified <puttableStream> which
+	will read the value of this field from an instance of the structure. The field in question
+	is after the fields in the <sequencedReadableCollection> that is the 2nd argument."
+
+	aWriteStream
+		nextPut: $(;
+		print: Character;
+		space;
+		display: self characterCreationMessage;
+		space;
+		nextPutAll: '(bytes ';
+		display: self accessorMessage keywords first;
+		space.
+	self printOffsetExpression: aSymbol on: aWriteStream.
+	aWriteStream nextPutAll: '))'! !
+!AbstractCHARField categoriesFor: #characterCreationMessage!automatic generation!private! !
+!AbstractCHARField categoriesFor: #printAccessorExpression:on:!automatic generation!private! !
+
 !AbstractDocumentShell methodsFor!
 
 saveStateOn: aWriteStream 
@@ -1565,7 +1597,7 @@ publishedAspectsOfInstances
 
 	| applicableTypeConverters |
 	applicableTypeConverters := Set new.
-	self applicableTypeConverterCategories do: [:each | applicableTypeConverters addAll: each contents].
+	self applicableTypeConverterCategories do: [:each | applicableTypeConverters addAll: each classes].
 	^(super publishedAspectsOfInstances)
 		add: (Aspect choice: #typeconverter
 					evaluationFrom: (applicableTypeConverters asSortedCollection asArray 
@@ -1752,7 +1784,7 @@ mapInitialIpFrom: aCompiledMethod to: debugCompiledMethod
 	debugMap := debugCompiledMethod debugInfo textMap.
 	self assert: [map size == debugMap size].
 	ip := self block initialIP.
-	i := self findIP: ip inTextMap: map.
+	i := self class findIP: ip inTextMap: map.
 	self assert: [(map at: i) key = ip].
 	^(debugMap at: i) key! !
 !BlockFrame categoriesFor: #debugIpFor:!private! !
@@ -1989,14 +2021,15 @@ literalTextStyle
 
 !CHARField methodsFor!
 
-printAccessorExpressionSuffixOn: aWriteStream
-	"Private - Print any extra messages/statements onto the <puttableStream> argument that are required to
-	configure the object being read from the structure instance."
+accessorMessage
+	"Private - Answer the receiver's 'accessorStem'."
 
-	aWriteStream
-		space;
-		display: #asCharacter! !
-!CHARField categoriesFor: #printAccessorExpressionSuffixOn:!automatic generation!private! !
+	^#byteAtOffset:put:!
+
+characterCreationMessage
+	^#ansiValue:! !
+!CHARField categoriesFor: #accessorMessage!public! !
+!CHARField categoriesFor: #characterCreationMessage!automatic generation!private! !
 
 !CheckBox class methodsFor!
 
@@ -2064,7 +2097,7 @@ methodChanged: aCompiledMethod
 	self notifyPackageOfChange!
 
 notifyPackageOfChange
-	self owningPackage ifNotNil: [:package | package isChanged: true]!
+	PackageManager current onClassDirtied: self!
 
 renameClassVar: oldString to: newString
 	"Private - Rename the class variable of the receiver named by the <readableString>, oldString, to be
@@ -2528,17 +2561,11 @@ isDeprecated
 	^self methodClass isDeprecated or: [MethodCategory deprecatedMethods includesMethod: self]!
 
 isSimpleSelfSend: aSymbol
-	"Private - Answer whether the receiver is a method that just sends the specified selector
-	(which must be zero-argument) to self. Note that this does not work for special selectors
-	such as #class, #new, etc, that have specific bytecode encodings."
+	"Private - Answer whether the receiver is a method that just sends the specified selector (which must be zero-argument) to self. Note that this does not work for special selectors such as #class, #new, etc, that have specific bytecode encodings."
 
-	^self size > 0 and: 
-			[(self at: 1) == aSymbol and: 
-					[| packed |
-					packed := self basicByteCodes.
-					(packed == ##(self packByteCodes: {ShortSendSelfZeroArgs. ReturnFromMessage} asByteArray)
-						or: [packed == ##(self packByteCodes: {ShortSendSelfZeroArgs. PopReturnSelf} asByteArray)])
-							and: [self extraIndex == 0]]]!
+	^(byteCodes == ##(self packByteCodes: {ShortSendSelfZeroArgs. ReturnFromMessage} asByteArray)
+		or: [byteCodes == ##(self packByteCodes: {ShortSendSelfZeroArgs. PopReturnSelf} asByteArray)])
+			and: [(self basicAt: 1) == aSymbol and: [self extraIndex == 0]]!
 
 stylerClass
 	^self subclassResponsibility! !
@@ -2617,6 +2644,21 @@ icon
 
 	^Smalltalk developmentSystem iconForMethod: self!
 
+infoTip
+	"Private - Answer a suitable 'info tip' for the receiver."
+
+	| stream |
+	stream := String writeStream: 32.
+	stream
+		display: self;
+		nextPutAll: ' ('.
+	self realCategories asSortedCollection asArray 
+		, (self protocols asSortedCollection: [:a :b | a asSymbol < b asSymbol]) 
+			do: [:each | stream display: each]
+			separatedBy: [stream nextPutAll: ', '].
+	stream nextPut: $).
+	^stream contents!
+
 searchForInTool: aSmalltalkToolShell 
 	aSmalltalkToolShell searchForMethod: self!
 
@@ -2625,6 +2667,7 @@ stylerClass
 !CompiledMethod categoriesFor: #asDebugMethod!private! !
 !CompiledMethod categoriesFor: #browse!public! !
 !CompiledMethod categoriesFor: #icon!constants!public! !
+!CompiledMethod categoriesFor: #infoTip!accessing!development!private! !
 !CompiledMethod categoriesFor: #searchForInTool:!public! !
 !CompiledMethod categoriesFor: #stylerClass!constants!public! !
 
@@ -2719,7 +2762,7 @@ publishedAspectsOfInstances
 	| applicableLayoutManagers categories choices |
 	applicableLayoutManagers := Set new.
 	categories := self applicableLayoutManagerCategories.
-	categories do: [:each | applicableLayoutManagers addAll: each contents].
+	categories do: [:each | applicableLayoutManagers addAll: each classes].
 	choices := OrderedCollection with: 'nil'.
 	applicableLayoutManagers asSortedCollection 
 		do: [:each | choices addLast: each name , ' new'].
@@ -3113,13 +3156,20 @@ valueParameterName
 printOn: aStream
 	"Append a textual representation of the receiver to aStream."
 
-	| hex |
-	hex := self isNull
-			ifTrue: ['0']
-			ifFalse: [self value printStringRadix: 16].
 	aStream
 		basicPrint: self;
-		nextPut: $(; display: hex; nextPut: $)! !
+		nextPut: $(.
+	self isNull
+		ifTrue: [aStream nextPut: $0]
+		ifFalse: 
+			[self isSigned
+				ifTrue: [aStream print: self value]
+				ifFalse: 
+					[self value
+						printOn: aStream
+						base: 16
+						showRadix: true]].
+	aStream nextPut: $)! !
 !ExternalInteger categoriesFor: #printOn:!printing!public! !
 
 !ExternalInteger class methodsFor!
@@ -3300,8 +3350,7 @@ compileDefinition
 	self
 		newTemplate;
 		defineTemplate;
-		recompileDefinition;
-		shrink!
+		recompileDefinition!
 
 compileGetFieldNames
 	"Private - Define a #getFieldList method for the structure class so that the field names are available even if the template is removed."
@@ -3350,7 +3399,7 @@ compileSetMethod: aSelector forField: anExternalField
 	anExternalField canGenerateMutator ifFalse: [^self].
 	methodText := String writeStream: 256.
 	anExternalField printMutator: aSelector on: methodText.
-	self formatAndCompile: methodText contents categories: anExternalField autoGenCategories!
+	^self formatAndCompile: methodText contents categories: anExternalField autoGenCategories!
 
 decompileDefinition
 	"Remove generated accessor methods from the receiver. The template will be lazily rebuilt."
@@ -4552,6 +4601,7 @@ publishedAspectsOfInstances
 				add: (Aspect fileSave: #packageFileName);
 				add: (Aspect sequenceableCollection: #manualPrerequisites
 							addFrom: self manager packageNames asSortedCollection);
+				add: (Aspect boolean: #preDeclareClassesOnLoad);
 				yourself.
 	"If the image has the ADK loaded, then include the image stripper"
 	self environment at: #ImageStripper
@@ -4717,7 +4767,7 @@ errorModify: key value: value
 						with: (self at: key)).
 	recompile isNil ifTrue: [^self].
 	var := self associationAt: key.
-	var whileMutableDo: [var value: value].
+	var setValue: value.
 	self isChanged: true.
 	recompile ifTrue: [self recompileReferencesToVarNamed: key]
 
@@ -5537,6 +5587,7 @@ publishedAspectsOfInstances
 		add: (Aspect choice: #tabDrawMode from: self tabDrawModes);
 		add: (Aspect choice: #endOfLineMode from: self lineEndings);
 		add: (Aspect choice: #tabDrawMode from: self tabDrawModes);
+		add: (Aspect choice: #endOfLineAnnotationMode from: self annotationModes);
 		yourself.
 	choices := OrderedCollection with: 'nil'.
 	(ScintillaStyler allSubclasses reject: [:each | each isAbstract])
@@ -5548,7 +5599,7 @@ publishedAspectsOfInstances
 		do: [:each | answer add: (Aspect integer: each)].
 	#(#caretForecolor #callTipHighlightColor #whitespaceBackcolor #whitespaceForecolor #foldMarginColor #foldMarginHiColor #currentLineBackcolor)
 		do: [:each | answer add: (Aspect color: each)].
-	#(#isDrawingBuffered #canScrollPastEnd #isAutoCompletionCancelledAtStart #isAutoCompletionCaseInsensitive #isAutoCompletionCancelledWhenNoMatch #isAutoCompletionSingleMatchChosen #isAutoCompletionTruncating #isBraceHighlightingEnabled #isFoldingEnabled #hasVisibleLineEndings #isCurrentLineHighlighted #isAccessibilityEnabled)
+	#(#canScrollPastEnd #isAutoCompletionCancelledAtStart #isAutoCompletionCaseInsensitive #isAutoCompletionCancelledWhenNoMatch #isAutoCompletionSingleMatchChosen #isAutoCompletionTruncating #isBraceHighlightingEnabled #isFoldingEnabled #hasVisibleLineEndings #isCurrentLineHighlighted #isAccessibilityEnabled)
 		do: [:each | answer add: (Aspect boolean: each)].
 	^answer!
 
@@ -5609,6 +5660,14 @@ publishedAspectsOfInstances
 		add: (Aspect boolean: #shouldStretchToFit);
 		yourself! !
 !ScrollingDecoratorLayout class categoriesFor: #publishedAspectsOfInstances!constants!public! !
+
+!SearchPolicy class methodsFor!
+
+method
+	"Answer the singleton sub-instance of the receiver which supports a search policy based appropriate for CompiledMethods."
+
+	^CompiledMethodSearchPolicy current! !
+!SearchPolicy class categoriesFor: #method!instance creation!public! !
 
 !SelectorEnvironment methodsFor!
 
@@ -5850,7 +5909,7 @@ debugIpFor: debugMethod
 	map := method debugInfo textMap.
 	debugMap := debugMethod debugInfo textMap.
 	self assert: [map size == debugMap size].
-	i := self findIP: ip inTextMap: map.
+	i := self class findIP: ip inTextMap: map.
 	(map at: i) key = ip 
 		ifTrue: 
 			["Directly corresponding entry"
@@ -5859,7 +5918,7 @@ debugIpFor: debugMethod
 	previous instructions IP and then step to the next instruction in the debug method"
 	interp := method byteCodeDispatcher.
 	prev := interp prevIP: ip.
-	i := self findIP: prev inTextMap: map.
+	i := self class findIP: prev inTextMap: map.
 	offset := prev - (map at: i) key.
 	debugPrev := offset = 0 
 				ifTrue: [(debugMap at: i) key]
@@ -5884,16 +5943,8 @@ debugIpFor: debugMethod
 	interp next.
 	^interp ip!
 
-findIP: anInteger inTextMap: aTextMap
-	"Private - Answer the index of the source map entry corresponding to the
-    	specified <integer> ip. The key of each text map entry identifies the first IP of the code generated for the range
-	of source which is held as the <interval> value."
-
-	| i size |
-	i := 1.
-	size := aTextMap size.
-	[i < size and: [anInteger > (aTextMap at: i) key]] whileTrue: [i := i + 1].
-	^i!
+debugPrintOn: aStream
+	self basicPrintOn: aStream!
 
 makeDebug
 	"Private - Convert the receiver to a debug frame. This is for the use of the debugger."
@@ -5917,7 +5968,7 @@ stackWorkspace
 
 	^self sender isNil ifTrue: [0] ifFalse: [self sp - index - self frameSize + 1]! !
 !StackFrame categoriesFor: #debugIpFor:!private! !
-!StackFrame categoriesFor: #findIP:inTextMap:!private! !
+!StackFrame categoriesFor: #debugPrintOn:!public! !
 !StackFrame categoriesFor: #makeDebug!private! !
 !StackFrame categoriesFor: #stackWorkspace!accessing!private! !
 
@@ -6213,7 +6264,7 @@ newAspect: aSymbol class: aspectClass
 	"Private - Answer a new <Aspect> of the class, aspectClass, and with name, aSymbol, 
     	which is appropriate for representing aspects of the receiver's type."
 
-	^(self identityIncludes: Character cr) 
+	^(self size > 80 or: [self identityIncludes: Character cr]) 
 		ifTrue: [aspectClass multilineString: aSymbol]
 		ifFalse: [aspectClass string: aSymbol]!
 
@@ -7267,6 +7318,18 @@ publishedAspectsOfInstances
     		add: (Aspect string: #productVersionString) beReadOnly;
     		yourself! !
 !VS_FIXEDFILEINFO class categoriesFor: #publishedAspectsOfInstances!constants!public! !
+
+!WCHARField methodsFor!
+
+accessorMessage
+	"Private - Answer the receiver's 'accessorStem'."
+
+	^#wordAtOffset:put:!
+
+characterCreationMessage
+	^#utf16Value:! !
+!WCHARField categoriesFor: #accessorMessage!automatic generation!private! !
+!WCHARField categoriesFor: #characterCreationMessage!automatic generation!private! !
 
 !WeakSet class methodsFor!
 

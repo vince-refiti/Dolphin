@@ -288,33 +288,29 @@ invalidArgErrorClass
 !
 
 invalidCall: anInteger
-	"An invalid virtual call was attempted through one of the receiver's methods.
-	Generate an appropriate error from the following categories:
-		-	Argument type error. At least one argument was either out of range or of invalid type.
-			Only the first such error is reported.
-		-	Unknown primitive failure. An uncategorised primitive failure occurred. Seek assistance."
+	"An invalid virtual call was attempted through one of the receiver's methods."
 
 	| frame descriptor method |
+	anInteger >= 0 ifTrue: [self primitiveFailed: anInteger].
 	frame := Processor activeProcess topFrame sender.
 	method := frame method.
 	descriptor := method descriptor.
-	anInteger < 0
-		ifTrue: 
-			[^descriptor retType == ExtCallArgTypes.ExtCallArgNTSTATUS
-				ifTrue: [HRESULTError signalFailureCode: (anInteger bitOr: HRESULT.FACILITY_NT_BIT)]
-				ifFalse: [HRESULTError signalFailureCode: anInteger]].
-	anInteger >= 16r10000
-		ifTrue: 
-			[| i arg |
-			i := descriptor argumentIndexFromOffset: anInteger - 16r10000.
-			arg := method isVirtualFunction ifTrue: [i - 1] ifFalse: [i].
-			^self invalidArgErrorClass
-				invalidArgument: arg
-				got: (frame arguments at: arg)
-				expected: (descriptor argumentTypes at: i)].	"One of the arguments was invalid?"
-
-	"All arguments were apparently valid, it must have been some system or unknown error."
-	^self primitiveFailed: anInteger!
+	"Reporting of errors related to individual arguments is limited to a maximum of 12 arguments, although API functions with such large numbers of parameters are very rare.
+	If the error is with parameter 13+, then it will be the generic _PrimitiveFailureCode.InvalidParameter."
+	^(anInteger >= _PrimitiveFailureCode.InvalidParameter1
+		and: [anInteger <= _PrimitiveFailureCode.InvalidParameter12])
+			ifTrue: 
+				[| arg i |
+				i := descriptor argumentIndexFromOffset: anInteger - _PrimitiveFailureCode.InvalidParameter1.
+				arg := frame method isVirtualFunction ifTrue: [i - 1] ifFalse: [i].
+				self invalidArgErrorClass
+					invalidArgument: arg
+					got: (frame arguments at: arg)
+					expected: (descriptor argumentTypes at: i)]
+			ifFalse: 
+				[self hresultError: (descriptor retType == ExtCallArgTypes.ExtCallArgNTSTATUS
+							ifTrue: [(HRESULT decodePrimitiveFailureCode: anInteger) bitOr: HRESULT.FACILITY_NT_BIT]
+							ifFalse: [HRESULT decodePrimitiveFailureCode: anInteger])]!
 
 isFieldBrowsable: aSymbol
 	^self class isFieldBrowsable: aSymbol!
@@ -584,7 +580,10 @@ descriptorClass
 dynamicSelectorsDo: aMonadicValuable
 	"Evaluate the <monadicValuable> argument for each of the extra message selectors understood by the receiver at run time that might not have an associated method."
 
-	self template keysDo: aMonadicValuable!
+	self template keysAndValuesDo: 
+			[:fieldName :field |
+			field isReadable ifTrue: [aMonadicValuable value: fieldName].
+			field isWriteable ifTrue: [aMonadicValuable value: (fieldName copyWith: $:) asSymbol]]!
 
 elementSize
 	"Answer the size (in bytes) of the structure the receiver represents
@@ -886,16 +885,6 @@ setGuid: aGUID
 		self register]
 !
 
-shrink
-	"Private - Reduce the size of the structure template by removing the write accessors.
-	This should only be done to compiled structures."
-
-	self template keysAndValuesDo: [:k :f |
-		(k last == $: and: [f canGenerateMutator])
-			ifTrue: [self template removeKey: k]]
-
-	!
-
 stbReadFrom: anSTBInFiler format: anSTBClassConversion 
 	self ensureDefined.
 	^super stbReadFrom: anSTBInFiler format: anSTBClassConversion!
@@ -990,7 +979,6 @@ withBytes: aByteObject
 !ExternalStructure class categoriesFor: #removeRedundantOffsetConstants!private!template definition! !
 !ExternalStructure class categoriesFor: #resetTemplate!public!template definition! !
 !ExternalStructure class categoriesFor: #setGuid:!accessing!private! !
-!ExternalStructure class categoriesFor: #shrink!private!template definition! !
 !ExternalStructure class categoriesFor: #stbReadFrom:format:!binary filing!public! !
 !ExternalStructure class categoriesFor: #structurePacker!public!template definition! !
 !ExternalStructure class categoriesFor: #template!accessing!private! !
